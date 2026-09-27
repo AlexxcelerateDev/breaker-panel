@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    # Tiene que coincidir con la rama por defecto del repo: si no, los merges a la default no
+    # disparan nada y el hueco no avisa de su existencia.
+    branches: [main]
+  pull_request:
+  schedule:
+    # Los advisories nuevos aparecen sin que cambie el código: revisión semanal.
+    - cron: "0 6 * * 1"
+
+# Mínimo privilegio: el job solo lee el repo. Un step que necesite escribir lo pide explícitamente.
+permissions:
+  contents: read
+
+# Un push nuevo a la misma PR cancela el run anterior; en main se dejan terminar todos para no
+# perder la señal de un commit ya integrado.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # El token quedaría en .git/config al alcance de cualquier step posterior, incluido el
+          # build de una dependencia. Este workflow no hace push.
+          persist-credentials: false
+
+      # Respeta rust-toolchain.toml (pin + rustfmt + clippy) y trae cache integrado.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Formato
+        run: cargo fmt --all --check
+
+      - name: Lint estricto
+        run: cargo clippy --all-targets --locked
+        env:
+          CARGO_BUILD_WARNINGS: deny
+
+      # Sin `--lib` a propósito: en una librería los doctests son los ejemplos de la API, y
+      # `cargo test` a secas corre unitarios, `tests/` y doctests en un solo paso.
+      - name: Tests
+        run: cargo test --locked
+
+      # La documentación es parte de la API: un enlace [`X`] roto o un `pub` sin documentar
+      # rompe aquí. `build.warnings` también cubre a rustdoc (verificado), así que no hace
+      # falta `RUSTDOCFLAGS`.
+      - name: Documentación
+        run: cargo doc --no-deps --locked
+        env:
+          CARGO_BUILD_WARNINGS: deny
+
+      # Binario precompilado: instalarlo desde fuente costaría más que todo el resto del job.
+      - name: Instalar cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Auditoría de dependencias
+        run: cargo deny check

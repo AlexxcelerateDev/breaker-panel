@@ -1,0 +1,44 @@
+# cargo-deny: advisories, licencias, versiones duplicadas y orígenes en un solo paso. Corre en
+# el CI (también semanal) y en local con `cargo deny check`.
+
+[advisories]
+# Las vulnerabilidades rompen el build siempre. "Sin mantenimiento" solo si el crate es
+# dependencia directa: sobre una transitiva no se puede hacer nada más que esperar al upstream,
+# y bloquear el CI por eso convierte el gate en ruido que se acaba silenciando entero.
+unmaintained = "workspace"
+# Para ignorar un advisory temporalmente: su RUSTSEC-XXXX-XXXX aquí CON motivo y fecha de
+# revisión, nunca a secas. Un advisory nuevo se arregla actualizando la dependencia.
+ignore = []
+
+[licenses]
+# Con `publish = false` el propio crate no lleva `license`. Al publicarlo esta línea deja de
+# aplicar, y la licencia que se le ponga tiene que estar en `allow`.
+private = { ignore = true }
+# Permisivas habituales del ecosistema Rust. Una dependencia fuera de la lista rompe el build:
+# es la señal para revisarla antes de que entre, no para ampliar la lista sin mirar.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+# La lista es una política, no un inventario: que hoy ninguna dependencia use Zlib no es motivo
+# para avisar en cada ejecución (con cero dependencias, avisaría por las diez).
+unused-allowed-license = "allow"
+
+[bans]
+# Duplicadas: avisan, no rompen. Casi siempre son transitivas ajenas.
+multiple-versions = "warn"
+# Una dependencia sin versión es como se cuela una versión nueva sin que nadie lo decida.
+wildcards = "deny"
+
+[sources]
+# Solo crates.io. Una dependencia git o de otro registro es una decisión, no un `cargo add`.
+unknown-registry = "deny"
+unknown-git = "deny"

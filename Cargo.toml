@@ -1,0 +1,27 @@
+[package]
+name = "plantilla-lib"
+version = "0.1.0"
+edition = "2024"
+# En una librería la MSRV es una promesa a quien la consume, y el CI solo la cumple porque
+# coincide con el pin de `rust-toolchain.toml`. Ver `.claude/rules/00-rust-toolchain.md`.
+rust-version = "1.98"
+# Default restrictivo: un `cargo publish` accidental no sale. Para publicar en crates.io, quitar
+# esta línea y añadir `description`, `license` y `repository`, que crates.io exige.
+publish = false
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "deny"
+# En una librería la documentación es parte de la API: con el gate a `deny`, un `pub` sin `///`
+# rompe el CI.
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+# Todo `pub fn` que devuelve `Result` dice en `# Errors` cuándo falla. Es el único de `pedantic`
+# que entra; el resto se evalúa lint por lint, nunca el grupo de golpe.
+missing_errors_doc = "warn"
+dbg_macro = "warn"
+todo = "warn"

@@ -1,0 +1,5 @@
+/target
+
+# Personales, nunca compartidos: permisos de Claude por máquina e instrucciones locales.
+.claude/settings.local.json
+CLAUDE.local.md
