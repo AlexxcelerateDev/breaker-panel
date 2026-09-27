@@ -22,6 +22,8 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "BSL-1.0",
+    # `notify` (feature `watch`): dominio público, más permisiva que MIT.
+    "CC0-1.0",
     "ISC",
     "MIT",
     "MPL-2.0",

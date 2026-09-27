@@ -24,8 +24,8 @@ Para matrices de casos, un array y un `for` hacen lo que daría `rstest` sin añ
 negociable: **el assert identifica la fila que falla**, o el fallo no dice nada.
 
 ```rust
-for (raw, max, esperado) in casos {
-    assert_eq!(trimmed(raw, max), esperado, "trimmed({raw:?}, {max})");
+for (key, esperado) in casos {
+    assert_eq!(is_key(key), esperado, "is_key({key:?})");
 }
 ```
 
@@ -45,7 +45,7 @@ en `tests/fixtures/`, nunca en un `setup` global.
 
 ## Reglas de estilo
 
-- Nombre del test = comportamiento (`trimmed_rechaza_solo_espacios`), no `test_1`.
+- Nombre del test = comportamiento (`segment_rechaza_el_punto`), no `test_1`.
 - Un comportamiento por test; arrange/act/assert reconocibles.
 - `assert_eq!` sobre `assert!(a == b)`: muestra el valor al fallar.
 - `#[expect(...)]`, nunca `#[allow(...)]` (ver 00).

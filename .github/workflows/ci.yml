@@ -45,6 +45,13 @@ jobs:
         env:
           CARGO_BUILD_WARNINGS: deny
 
+      # `watch` y `registry` son opcionales: un `use` o un `cfg` que solo cuadra con ellas
+      # encendidas rompe al consumidor que las apaga, y el paso anterior no lo vería.
+      - name: Lint sin features por defecto
+        run: cargo clippy --all-targets --locked --no-default-features
+        env:
+          CARGO_BUILD_WARNINGS: deny
+
       # Sin `--lib` a propósito: en una librería los doctests son los ejemplos de la API, y
       # `cargo test` a secas corre unitarios, `tests/` y doctests en un solo paso.
       - name: Tests

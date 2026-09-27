@@ -1,84 +1,67 @@
-//! Qué hace este crate, en una línea: es lo primero que se ve en docs.rs y en el IDE.
+//! Kill switches jerárquicos embebidos: archivo TOML local, hot-reload y cascada, sin servicio externo.
 //!
-//! [`trimmed`] y [`Error`] son el ejemplo de los patrones de la plantilla —error propio,
-//! `# Errors`, doctest, test tabular— y se borran con el primer módulo de verdad.
+//! Las keys son jerárquicas (`payments.methods.paypal`): apagar un nodo apaga todo lo que cuelga
+//! de él, y la consulta dice quién lo apagó y por qué. La cascada se resuelve al cargar; en
+//! runtime cada consulta es un load atómico y un lookup, sin locks.
+//!
+//! ```
+//! use breaker_panel::{FlagError, Flags, segment};
+//!
+//! let flags: Flags = Flags::from_toml_str(r#"
+//!     [flags]
+//!     "payments"                       = { enabled = true }
+//!     "payments.methods.paypal"        = { enabled = false, reason = "PayPal no responde" }
+//!     "payments.methods.paypal.refund" = { enabled = true }
+//!     "payments.ops.refund"            = { enabled = true }
+//! "#)?;
+//!
+//! // POST /refunds: un `require` por dimensión. El segmento llega del usuario: se valida antes.
+//! let m = segment("paypal")?;
+//! let Err(FlagError::Disabled { disabled_by, reason, .. }) =
+//!     flags.require(format!("payments.methods.{m}.refund"))
+//! else {
+//!     panic!("el método está apagado, y con él su refund");
+//! };
+//! assert_eq!(disabled_by, "payments.methods.paypal");
+//! assert_eq!(reason, "PayPal no responde");
+//! assert_eq!(flags.require("payments.ops.refund"), Ok(()));
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! # Features
+//!
+//! - `watch` (default): [`Flags::watch_file`] y [`Flags::poll_file`], la recarga en caliente.
+//! - `registry` (default): [`flag_key!`], keys declaradas en código y validadas en cada carga.
+//!
+//! # Varias réplicas
+//!
+//! Cada proceso recarga por su cuenta, así que mientras el archivo se propaga dos réplicas
+//! pueden responder distinto. Un listado (`GET`) es informativo; la autoridad es el `require`
+//! de la operación (`POST`).
+//!
+//! La guía de modelado de keys está en el README.
 
-use std::fmt;
+mod error;
+mod flags;
+mod key;
+#[cfg(feature = "registry")]
+mod registry;
+mod snapshot;
+#[cfg(feature = "watch")]
+mod watch;
 
-/// Lo que puede fallar al llamar a este crate.
-///
-/// `#[non_exhaustive]` porque es API pública: añadir una variante deja de ser un cambio
-/// incompatible, ya que quien hace `match` desde fuera está obligado a llevar un brazo `_`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Error {
-    /// No queda nada después de recortar los espacios.
-    Empty,
-    /// Pasa del máximo de caracteres permitido.
-    TooLong {
-        /// El máximo que se pidió.
-        max: usize,
-    },
-}
+pub use error::{FlagError, LoadError, TomlError};
+pub use flags::{Diff, Flags};
+pub use key::segment;
+#[cfg(feature = "registry")]
+#[doc(hidden)]
+pub use registry::{KEYS, linkme};
+pub use snapshot::{Resolved, Snapshot};
+#[cfg(feature = "watch")]
+pub use watch::Watcher;
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Empty => f.write_str("el texto está vacío"),
-            Self::TooLong { max } => write!(f, "el texto pasa de {max} caracteres"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-/// Recorta los espacios de los extremos y exige que quede algo de a lo sumo `max` caracteres.
-///
-/// Cuenta caracteres, no bytes: `"ñandú"` son 5 aunque ocupe 7.
-///
-/// # Errors
-///
-/// [`Error::Empty`] si solo había espacios, y [`Error::TooLong`] si pasa de `max`.
-///
-/// # Examples
-///
-/// ```
-/// use plantilla_lib::{Error, trimmed};
-///
-/// assert_eq!(trimmed("  hola  ", 10), Ok("hola"));
-/// assert_eq!(trimmed("   ", 10), Err(Error::Empty));
-/// ```
-pub fn trimmed(raw: &str, max: usize) -> Result<&str, Error> {
-    let s = raw.trim();
-    if s.is_empty() {
-        return Err(Error::Empty);
-    }
-    if s.chars().count() > max {
-        return Err(Error::TooLong { max });
-    }
-    Ok(s)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn trimmed_recorta_y_acota() {
-        let casos = [
-            ("  hola  ", 10, Ok("hola")),
-            ("", 10, Err(Error::Empty)),
-            (" \t\n ", 10, Err(Error::Empty)),
-            // Justo en el límite vale; uno más, no.
-            ("hola", 4, Ok("hola")),
-            ("hola", 3, Err(Error::TooLong { max: 3 })),
-            // Caracteres, no bytes: con `len()` serían 7 y se rechazaría un texto válido.
-            ("ñandú", 5, Ok("ñandú")),
-            // Los espacios recortados no cuentan para el máximo.
-            ("  ab  ", 2, Ok("ab")),
-        ];
-        for (raw, max, esperado) in casos {
-            assert_eq!(trimmed(raw, max), esperado, "trimmed({raw:?}, {max})");
-        }
-    }
-}
+/// Los bloques de código del README corren como doctests: el ejemplo de la portada no se pudre.
+/// Uno usa `flag_key!`, de ahí la feature.
+#[cfg(all(doctest, feature = "registry"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
