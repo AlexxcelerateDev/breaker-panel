@@ -28,14 +28,28 @@ pub fn segment(s: &str) -> Result<&str, FlagError> {
 }
 
 /// `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, sin arrastrar una dependencia de regex.
-pub(crate) fn is_key(key: &str) -> bool {
-    key.split('.').all(is_segment)
+///
+/// `const` para que [`flag_key!`](crate::flag_key) rechace una key mal formada al compilar: si
+/// no, fallaría al arrancar diciendo que falta en el archivo, donde nunca podría estar.
+#[doc(hidden)]
+pub const fn is_key(key: &str) -> bool {
+    let bytes = key.as_bytes();
+    // `true` al empezar y tras cada `.`: ahí tiene que abrir un segmento.
+    let mut at_segment_start = true;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'.' if !at_segment_start => at_segment_start = true,
+            b'a'..=b'z' | b'0'..=b'9' | b'_' => at_segment_start = false,
+            _ => return false,
+        }
+        i += 1;
+    }
+    !at_segment_start
 }
 
 fn is_segment(s: &str) -> bool {
-    !s.is_empty()
-        && s.bytes()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_'))
+    !s.contains('.') && is_key(s)
 }
 
 #[cfg(test)]

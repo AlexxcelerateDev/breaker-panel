@@ -55,6 +55,15 @@ flags.require("payments.ops.refund")?;
 # }
 ```
 
+Un servidor completo con axum —los tres endpoints, la traducción de errores a HTTP y la recarga
+en caliente— está en [`examples/axum.rs`](examples/axum.rs):
+
+```text
+cargo run --example axum
+curl localhost:3000/payment-methods
+curl -X POST localhost:3000/refunds -H 'content-type: application/json' -d '{"method":"paypal"}'
+```
+
 ## Semántica
 
 - Cada entrada lleva `enabled`; `reason` es obligatorio si está apagada (se le muestra al usuario
@@ -130,8 +139,9 @@ flags.require(CHARGE)?;
 ```
 
 Toda key declarada con `flag_key!` tiene que estar en el archivo: si falta, falla el arranque, y
-una recarga que la quite se rechaza. Las keys dinámicas (`format!`) no se validan al arrancar: si
-no existen, dan `Unknown` en runtime.
+una recarga que la quite se rechaza. Una key mal formada (`"payments.Methods"`) ni siquiera
+compila. Las keys dinámicas (`format!`) no se validan al arrancar: si no existen, dan `Unknown`
+en runtime.
 
 ## Cuándo usar esto y cuándo no
 

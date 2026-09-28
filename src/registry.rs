@@ -2,6 +2,10 @@ use std::collections::BTreeMap;
 
 use crate::{LoadError, Resolved};
 
+/// La usa [`flag_key!`] para comprobar el formato de la key al compilar.
+#[doc(hidden)]
+pub use crate::key::is_key;
+
 /// La usa [`flag_key!`] para que el consumidor no tenga que depender de `linkme`.
 #[doc(hidden)]
 pub use linkme;
@@ -35,9 +39,20 @@ pub static KEYS: [&'static str];
 /// assert!(matches!(Flags::<()>::from_toml_str("[flags]"), Err(LoadError::MissingKey { .. })));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+///
+/// Una key que no cumple `^[a-z0-9_]+(\.[a-z0-9_]+)*$` no compila (E0080: la evaluación de
+/// una constante falla):
+///
+/// ```compile_fail,E0080
+/// breaker_panel::flag_key!(MAL = "payments.Methods.paypal");
+/// ```
 #[macro_export]
 macro_rules! flag_key {
     ($(#[$attr:meta])* $vis:vis $name:ident = $key:literal) => {
+        const _: () = ::core::assert!(
+            $crate::is_key($key),
+            ::core::concat!("flag_key!: ", $key, " no es una key válida (a-z, 0-9, _, y . entre segmentos)"),
+        );
         $(#[$attr])*
         #[$crate::linkme::distributed_slice($crate::KEYS)]
         #[linkme(crate = $crate::linkme)]

@@ -55,7 +55,7 @@ pub use flags::{Diff, Flags};
 pub use key::segment;
 #[cfg(feature = "registry")]
 #[doc(hidden)]
-pub use registry::{KEYS, linkme};
+pub use registry::{KEYS, is_key, linkme};
 pub use snapshot::{Resolved, Snapshot};
 #[cfg(feature = "watch")]
 pub use watch::Watcher;

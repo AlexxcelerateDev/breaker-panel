@@ -1,0 +1,9 @@
+# Flags del ejemplo `axum`. Edítalo con el servidor en marcha: la siguiente petición ya lo ve.
+[flags]
+"payments"                       = { enabled = true }
+"payments.methods.paypal"        = { enabled = true, meta = { display_name = "PayPal" } }
+"payments.methods.paypal.refund" = { enabled = false, reason = "PayPal no procesa reembolsos hoy" }
+"payments.methods.stripe"        = { enabled = true, meta = { display_name = "Stripe" } }
+"payments.methods.stripe.refund" = { enabled = true }
+"payments.ops.charge"            = { enabled = true }
+"payments.ops.refund"            = { enabled = true }
