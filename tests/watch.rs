@@ -30,15 +30,22 @@ fn diffs(flags: &Flags) -> mpsc::Receiver<Diff> {
 }
 
 /// Como guardan los editores: escribir un temporal y renombrarlo encima.
+fn atomic_save(path: &Path, text: &str) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, text)?;
+    fs::rename(&tmp, path)
+}
+
+/// Plazo generoso para el evento, no una espera: el test sigue en cuanto llega.
+fn next_diff(rx: &mpsc::Receiver<Diff>) -> Result<Diff, mpsc::RecvTimeoutError> {
+    rx.recv_timeout(Duration::from_secs(10))
+}
+
 fn atomic_save_reloads(path: &Path, (flags, _watcher): (Arc<Flags>, Watcher)) -> TestResult {
     let rx = diffs(&flags);
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, OFF)?;
-    fs::rename(&tmp, path)?;
+    atomic_save(path, OFF)?;
 
-    // Plazo generoso para el evento, no una espera: el test sigue en cuanto llega.
-    let diff = rx.recv_timeout(Duration::from_secs(10))?;
-    assert_eq!(diff.changed, ["payments"]);
+    assert_eq!(next_diff(&rx)?.changed, ["payments"]);
     assert!(flags.require("payments").is_err());
     Ok(())
 }
@@ -54,6 +61,22 @@ fn guardado_atomico_dispara_el_reload_con_polling() -> TestResult {
     let path = flags_file("guardado_atomico_polling")?;
     let interval = Duration::from_millis(50);
     atomic_save_reloads(&path, Flags::poll_file(&path, interval)?)
+}
+
+#[test]
+fn un_callback_que_entra_en_panico_no_para_la_recarga() -> TestResult {
+    let path = flags_file("callback_en_panico")?;
+    let (flags, _watcher) = Flags::<()>::watch_file(&path)?;
+    flags.on_change(|_| panic!("callback roto"));
+    let rx = diffs(&flags);
+
+    // El callback de después se entera igual...
+    atomic_save(&path, OFF)?;
+    assert_eq!(next_diff(&rx)?.changed, ["payments"]);
+    // ...y el hilo del watcher sigue vivo para la recarga siguiente.
+    atomic_save(&path, ON)?;
+    assert_eq!(next_diff(&rx)?.changed, ["payments"]);
+    Ok(())
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use std::{
     fmt,
+    panic::{self, AssertUnwindSafe},
     sync::{Arc, Mutex, PoisonError},
 };
 
@@ -146,16 +147,15 @@ impl<M> Flags<M> {
         };
         tracing::info!(revision = diff.revision, "flags recargados");
         // Fuera del lock: un callback que registre otro o llame a `replace` no se bloquea.
-        for listener in listeners {
-            listener(&diff);
-        }
+        notify(&listeners, &diff);
     }
 
     /// Registra un callback que recibe el [`Diff`] de cada reemplazo aplicado. Uno que falla
     /// no lo dispara.
     ///
     /// Corre en el hilo que hizo el reemplazo (el del watcher, al recargar el archivo): tiene
-    /// que volver rápido.
+    /// que volver rápido. Si entra en pánico, se registra con `tracing` y el resto de callbacks
+    /// se llaman igual.
     ///
     /// # Examples
     ///
@@ -204,6 +204,20 @@ impl Diff {
             changed: changed.map(|(key, _)| key.clone()).collect(),
             previous_revision: prev.revision,
             revision: next.revision,
+        }
+    }
+}
+
+/// Un pánico en un callback no puede dejar sin aviso a los siguientes ni, al recargar desde el
+/// watcher, matar su hilo: la recarga en caliente se pararía sin que nada lo dijera.
+fn notify(listeners: &[Arc<Listener>], diff: &Diff) {
+    for listener in listeners {
+        let called = panic::catch_unwind(AssertUnwindSafe(|| listener(diff)));
+        if called.is_err() {
+            tracing::error!(
+                revision = diff.revision,
+                "un callback de on_change entró en pánico"
+            );
         }
     }
 }

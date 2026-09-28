@@ -23,6 +23,10 @@ type Reload = Arc<dyn Fn(bool) -> Result<(), LoadError> + Send + Sync>;
 
 /// Vigila un archivo de flags. Soltarlo deja de vigilar; los [`Flags`] siguen con el último
 /// snapshot aplicado.
+///
+/// Ojo con `let (flags, _) = Flags::watch_file(..)`: el patrón `_` lo suelta en el acto y el
+/// archivo deja de vigilarse sin que nada avise. Va en una variable con nombre (`_watcher`
+/// también vale) o en el estado de la app, junto a los flags.
 pub struct Watcher {
     reload: Reload,
     _debouncer: Box<dyn Send>,
@@ -64,6 +68,8 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes. Una
     /// recarga que falla se registra con `tracing` y deja vigente el snapshot anterior. El
     /// watcher corre en su propio hilo y no necesita runtime async.
+    ///
+    /// La recarga dura lo que viva el [`Watcher`] devuelto: no lo sueltes con `_`.
     ///
     /// # Errors
     ///

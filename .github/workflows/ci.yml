@@ -36,6 +36,11 @@ jobs:
 
       # Respeta rust-toolchain.toml (pin + rustfmt + clippy) y trae cache integrado.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # Por defecto exporta `RUSTFLAGS=-D warnings` a todos los steps siguientes. Los
+          # warnings se deniegan con `CARGO_BUILD_WARNINGS` donde toca (ver
+          # `.claude/rules/00-rust-toolchain.md`); vacío = no tocar `RUSTFLAGS`.
+          rustflags: ""
 
       - name: Formato
         run: cargo fmt --all --check
