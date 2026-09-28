@@ -2,6 +2,7 @@ use std::{
     fmt,
     panic::{self, AssertUnwindSafe},
     sync::{Arc, Mutex, PoisonError},
+    thread::{self, ThreadId},
 };
 
 use arc_swap::ArcSwap;
@@ -24,6 +25,8 @@ pub struct Flags<M = ()> {
     // Serializa cada `replace` de punta a punta, avisos incluidos: dos a la vez calcularían el
     // diff contra la misma revisión, y los callbacks verían las revisiones desordenadas.
     writer: Mutex<()>,
+    // El hilo que está avisando a los `on_change`, para detectar que uno de ellos reentra.
+    notifying: Mutex<Option<ThreadId>>,
 }
 
 /// Lo que cambió entre dos revisiones. Lo recibe cada callback de [`Flags::on_change`].
@@ -76,6 +79,7 @@ impl<M> Flags<M> {
             current: ArcSwap::from_pointee(snapshot),
             listeners: Mutex::default(),
             writer: Mutex::default(),
+            notifying: Mutex::default(),
         }
     }
 
@@ -135,6 +139,11 @@ impl<M> Flags<M> {
     /// No falla: todo `Snapshot` ya viene validado de [`Snapshot::from_toml_str`]. Vuelve cuando
     /// todos los callbacks han terminado.
     ///
+    /// # Panics
+    ///
+    /// Si se llama desde un callback de `on_change` de estos mismos flags: esperaría a que
+    /// terminase el aviso en curso, que es el suyo, y se bloquearía para siempre.
+    ///
     /// # Examples
     ///
     /// ```
@@ -149,13 +158,38 @@ impl<M> Flags<M> {
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn replace(&self, mut next: Snapshot<M>) {
+        self.forbid_reentry();
         let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let prev = self.current.load_full();
         next.revision = prev.revision + 1;
         let diff = Diff::new(&prev, &next);
         self.current.store(Arc::new(next));
         tracing::info!(revision = diff.revision, "flags recargados");
+        self.set_notifying(Some(thread::current().id()));
         call_all(&self.listeners, &diff, "on_change");
+        self.set_notifying(None);
+    }
+
+    /// Un `replace` o un `Watcher::reload` desde un callback de `on_change` de estos flags se
+    /// esperaría a sí mismo: bloqueado para siempre, y en el hilo del watcher, sin que nada lo
+    /// diga. Mejor un pánico con el motivo, que `call_all` captura y registra.
+    pub(crate) fn forbid_reentry(&self) {
+        let notifying = *self
+            .notifying
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        assert_ne!(
+            notifying,
+            Some(thread::current().id()),
+            "replace o Watcher::reload desde un callback de on_change de los mismos flags",
+        );
+    }
+
+    fn set_notifying(&self, thread: Option<ThreadId>) {
+        *self
+            .notifying
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = thread;
     }
 
     /// Registra un callback que recibe el [`Diff`] de cada reemplazo aplicado. Uno que falla
@@ -165,9 +199,9 @@ impl<M> Flags<M> {
     /// Los avisos llegan uno detrás de otro y en orden de revisión, en el hilo que hizo el
     /// reemplazo (el del watcher, al recargar el archivo): el callback tiene que volver rápido.
     /// Desde él se puede consultar y registrar otro callback, pero **no** llamar a
-    /// [`replace`](Self::replace) ni a `Watcher::reload` sobre estos mismos flags: esperarían a
-    /// que terminase el aviso en curso, que es el suyo. Si entra en pánico, se registra con
-    /// `tracing` y el resto de callbacks se llaman igual.
+    /// [`replace`](Self::replace) ni a `Watcher::reload` sobre estos mismos flags: se esperarían
+    /// a sí mismos, así que entran en pánico. Un callback que entra en pánico se registra con
+    /// `tracing`, y el resto se llaman igual.
     ///
     /// # Examples
     ///
@@ -338,6 +372,23 @@ mod tests {
         // con uno viejo porque dos avisos se crucen.
         let revisiones: Vec<u64> = rx.try_iter().collect();
         assert_eq!(revisiones, (1..=4000).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn replace_desde_un_callback_falla_alto_en_vez_de_bloquearse() {
+        let flags = Arc::new(Flags::new(snap("[flags]")));
+        let dentro = Arc::clone(&flags);
+        let (tx, rx) = std::sync::mpsc::channel();
+        flags.on_change(move |_| {
+            let r = panic::catch_unwind(AssertUnwindSafe(|| dentro.replace(snap("[flags]"))));
+            tx.send(r.is_err()).unwrap();
+        });
+
+        flags.replace(snap("[flags]"));
+
+        // El `replace` de dentro entró en pánico en vez de esperarse a sí mismo.
+        assert_eq!(rx.try_recv(), Ok(true));
+        assert_eq!(flags.snapshot().revision(), 1);
     }
 
     #[test]

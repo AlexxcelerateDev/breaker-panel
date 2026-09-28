@@ -20,7 +20,7 @@ use crate::{
 /// dejan de llegar durante este tiempo.
 const DEBOUNCE: Duration = Duration::from_millis(200);
 
-/// `force = false` es un evento del watcher: no aplica nada si el archivo no cambió.
+/// [`Source::reload`] sin el tipo de `M`, para que `Watcher` no sea genérico.
 type Reload = Arc<dyn Fn(bool) -> Result<(), LoadError> + Send + Sync>;
 
 /// Vigila un archivo de flags. Soltarlo deja de vigilar; los [`Flags`] siguen con el último
@@ -43,7 +43,13 @@ impl Watcher {
     /// # Errors
     ///
     /// [`LoadError::Io`] si no se puede leer, y los de [`Snapshot::from_toml_str`]. En los dos
-    /// casos sigue vigente el snapshot anterior y no se dispara `on_change`.
+    /// casos sigue vigente el snapshot anterior y no se dispara `on_change`. Un rechazo ya
+    /// avisado (el mismo contenido inválido, el archivo que sigue sin poder leerse) se devuelve
+    /// aquí, pero no vuelve a llegar a [`on_reject`](Self::on_reject).
+    ///
+    /// # Panics
+    ///
+    /// Si se llama desde un callback de `on_change` de estos flags: se esperaría a sí mismo.
     ///
     /// # Examples
     ///
@@ -61,6 +67,10 @@ impl Watcher {
 
     /// Registra un callback que recibe el error de cada recarga rechazada, la del watcher y la
     /// de [`reload`](Self::reload): un archivo roto, borrado o sin una key registrada.
+    ///
+    /// Cada rechazo llega una vez: el mismo contenido inválido, o el archivo que sigue sin poder
+    /// leerse, no vuelve a avisar hasta que cambie. Por eso un callback que llame a `reload` no
+    /// entra en bucle.
     ///
     /// Un rechazo deja vigente el snapshot anterior, así que **sin esto solo se ve en el log de
     /// la librería** (target `breaker_panel::watch`), que un filtro por crate descarta: el
@@ -110,7 +120,9 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     ///
     /// Al arrancar no hay valores por defecto: [`LoadError::Io`] si el archivo no se puede leer,
     /// los de [`Snapshot::from_toml_str`] si no es válido, y [`LoadError::Watch`] si el sistema
-    /// no deja vigilar el directorio.
+    /// no deja vigilar el directorio. Un cambio entre la primera lectura y el `watch` no
+    /// generaría evento, así que se relee una vez al empezar a vigilar: si para entonces el
+    /// archivo ya no es válido o no está, también falla.
     ///
     /// # Examples
     ///
@@ -164,17 +176,17 @@ where
 {
     let text = read(path)?;
     let flags = Arc::new(Flags::new(Snapshot::from_toml_str(&text)?));
-    let rejects = Arc::new(Listeners::default());
-    let reload = reloader(
-        Arc::clone(&flags),
-        path.to_owned(),
-        text,
-        Arc::clone(&rejects),
-    );
+    let source = Arc::new(Source::new(Arc::clone(&flags), path, text));
+    let rejects = Arc::clone(&source.rejects);
+    let reload: Reload = Arc::new({
+        let source = Arc::clone(&source);
+        move |force| source.reload(force)
+    });
     let debouncer = debounce::<W>(path, config, Arc::clone(&reload))?;
-    // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si el
-    // contenido es el mismo, no hace nada; si el nuevo es inválido, queda registrado.
-    let _ = reload(false);
+    // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si ya no es
+    // válido, el arranque falla, como si la primera lectura lo hubiera encontrado así (§7): aún
+    // no hay `on_reject` al que avisar, y aceptarlo dejaría la réplica atrasada sin decirlo.
+    source.apply(false).map_err(|rejection| rejection.error)?;
     let _debouncer = Mutex::new(Box::new(debouncer) as Box<dyn Send>);
     Ok((
         flags,
@@ -186,53 +198,80 @@ where
     ))
 }
 
-fn reloader<M>(
+/// Lo que necesita una recarga: a quién aplicarla, de dónde leer y a quién avisar si falla.
+struct Source<M> {
     flags: Arc<Flags<M>>,
     path: PathBuf,
-    text: String,
+    seen: Mutex<Seen>,
     rejects: Arc<Listeners<LoadError>>,
-) -> Reload
-where
-    M: DeserializeOwned + Default + Send + Sync + 'static,
-{
-    let seen = Mutex::new(text);
-    Arc::new(move |force| {
-        let result = apply(&flags, &path, &seen, force);
-        if let Err(e) = &result {
-            // `{:#}` y no el error como campo: el formateador JSON de `tracing-subscriber` no
-            // pinta `source()`, y se perderían la línea y la columna.
-            let error = format!("{e:#}");
-            tracing::warn!(path = %path.display(), error, "recarga de flags rechazada");
-            call_all(&rejects, e, "on_reject");
-        }
-        result
-    })
 }
 
-/// El directorio padre avisa también de cambios en otros archivos, y el symlink de Kubernetes
-/// cambia sin que el archivo aparezca en el evento: por eso se compara el contenido en vez de
-/// filtrar por path. Un contenido inválido ya visto tampoco se reintenta (ni se vuelve a
-/// registrar) hasta que cambie.
-fn apply<M>(
-    flags: &Flags<M>,
-    path: &Path,
-    seen: &Mutex<String>,
-    force: bool,
-) -> Result<(), LoadError>
-where
-    M: DeserializeOwned + Default,
-{
-    let text = read(path)?;
-    // Tomado hasta después de `replace`, a propósito: soltarlo antes dejaría que dos recargas
-    // (la del watcher y un `reload` manual) se aplicaran al revés, y el snapshot vigente sería
-    // el viejo con `seen` diciendo que ya se aplicó el nuevo.
-    let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
-    if !force && *seen == text {
-        return Ok(());
+/// Lo último que se leyó del archivo, se aplicara o no.
+#[derive(PartialEq)]
+enum Seen {
+    Text(String),
+    Unreadable(io::ErrorKind),
+}
+
+/// Un rechazo, y si es nuevo. Uno repetido (el mismo contenido inválido, el archivo que sigue
+/// sin poder leerse) no se registra ni se avisa otra vez: si no, cualquier evento del directorio
+/// lo repetiría, y un `on_reject` que llamase a `reload` entraría en recursión sin fin.
+struct Rejection {
+    error: LoadError,
+    new: bool,
+}
+
+impl<M: DeserializeOwned + Default> Source<M> {
+    fn new(flags: Arc<Flags<M>>, path: &Path, text: String) -> Self {
+        Self {
+            flags,
+            path: path.to_owned(),
+            seen: Mutex::new(Seen::Text(text)),
+            rejects: Arc::default(),
+        }
     }
-    *seen = text;
-    flags.replace(Snapshot::from_toml_str(&seen)?);
-    Ok(())
+
+    /// `force = false` es un evento del watcher: no aplica nada si el archivo no cambió.
+    fn reload(&self, force: bool) -> Result<(), LoadError> {
+        self.flags.forbid_reentry();
+        self.apply(force).map_err(|Rejection { error, new }| {
+            if new {
+                // `{:#}` y no el error como campo: el formateador JSON de `tracing-subscriber`
+                // no pinta `source()`, y se perderían la línea y la columna.
+                let message = format!("{error:#}");
+                let path = self.path.display();
+                tracing::warn!(%path, error = message, "recarga de flags rechazada");
+                call_all(&self.rejects, &error, "on_reject");
+            }
+            error
+        })
+    }
+
+    /// El directorio padre avisa también de cambios en otros archivos, y el symlink de
+    /// Kubernetes cambia sin que el archivo aparezca en el evento: por eso se compara el
+    /// contenido en vez de filtrar por path.
+    fn apply(&self, force: bool) -> Result<(), Rejection> {
+        // Leer y aplicar con `seen` tomado, `replace` incluido, a propósito: si no, dos recargas
+        // (la del watcher y un `reload` manual) podrían aplicarse al revés, y el snapshot vigente
+        // sería el viejo con `seen` diciendo que ya se aplicó el nuevo.
+        let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+        let read = fs::read_to_string(&self.path);
+        let now = match &read {
+            Ok(text) => Seen::Text(text.clone()),
+            Err(e) => Seen::Unreadable(e.kind()),
+        };
+        let new = *seen != now;
+        if !force && !new {
+            return Ok(());
+        }
+        *seen = now;
+        let reject = |error| Rejection { error, new };
+        let path = self.path.clone();
+        let text = read.map_err(|source| reject(LoadError::Io { path, source }))?;
+        self.flags
+            .replace(Snapshot::from_toml_str(&text).map_err(reject)?);
+        Ok(())
+    }
 }
 
 fn debounce<W>(

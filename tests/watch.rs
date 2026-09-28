@@ -18,6 +18,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 
 const ON: &str = "[flags]\n\"payments\" = { enabled = true }\n";
 const OFF: &str = "[flags]\n\"payments\" = { enabled = false, reason = \"mantenimiento\" }\n";
+const SIN_REASON: &str = "[flags]\n\"payments\" = { enabled = false }\n";
 
 fn flags_file(test: &str) -> io::Result<PathBuf> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(test);
@@ -143,8 +144,58 @@ fn borrar_el_archivo_se_rechaza_y_recrearlo_lo_recupera() -> TestResult {
     let error = next(&rejected)?;
     assert!(error.starts_with("no se pudo leer"), "{error}");
     assert_eq!(flags.require("payments"), Ok(()));
+    // Mientras siga sin existir, ni otra recarga (aquí forzada) ni cualquier otro evento del
+    // directorio vuelven a avisar: el mismo rechazo se avisa una vez.
+    assert!(watcher.reload().is_err());
+    assert!(rejected.try_recv().is_err());
 
     fs::write(&path, OFF)?;
+    assert_eq!(next(&rx)?.changed, ["payments"]);
+    Ok(())
+}
+
+#[test]
+fn un_on_reject_que_recarga_no_entra_en_bucle() -> TestResult {
+    let path = flags_file("on_reject_recarga")?;
+    let (_flags, watcher) = Flags::<()>::watch_file(&path)?;
+    let watcher = Arc::new(watcher);
+    let (tx, rx) = mpsc::channel();
+    let w = Arc::downgrade(&watcher);
+    // "Reintentar al rechazar": con el archivo aún roto, vuelve a fallar.
+    watcher.on_reject(move |_| {
+        let _ = tx.send(());
+        if let Some(w) = w.upgrade() {
+            let _ = w.reload();
+        }
+    });
+
+    fs::write(&path, SIN_REASON)?;
+    let r = watcher.reload();
+
+    // Sin deduplicar los avisos, la recursión desbordaría la pila antes de llegar aquí.
+    assert!(r.is_err());
+    next(&rx)?;
+    assert!(rx.try_recv().is_err());
+    Ok(())
+}
+
+#[test]
+fn un_on_change_que_recarga_no_deja_muerto_el_watcher() -> TestResult {
+    let path = flags_file("on_change_recarga")?;
+    let (flags, watcher) = Flags::<()>::watch_file(&path)?;
+    let watcher = Arc::new(watcher);
+    let w = Arc::downgrade(&watcher);
+    // Se esperaría a sí mismo: tiene que fallar alto, no bloquear el hilo del watcher.
+    flags.on_change(move |_| {
+        if let Some(w) = w.upgrade() {
+            let _ = w.reload();
+        }
+    });
+    let rx = diffs(&flags);
+
+    atomic_save(&path, OFF)?;
+    assert_eq!(next(&rx)?.changed, ["payments"]);
+    atomic_save(&path, ON)?;
     assert_eq!(next(&rx)?.changed, ["payments"]);
     Ok(())
 }
@@ -155,7 +206,7 @@ fn reload_invalido_conserva_el_snapshot_y_no_avisa() -> TestResult {
     let (flags, watcher) = Flags::<()>::watch_file(&path)?;
     let (rejected, rx) = (rejects(&watcher), diffs(&flags));
 
-    fs::write(&path, "[flags]\n\"payments\" = { enabled = false }\n")?;
+    fs::write(&path, SIN_REASON)?;
     let r = watcher.reload();
 
     assert!(matches!(r, Err(LoadError::MissingReason { .. })), "{r:?}");

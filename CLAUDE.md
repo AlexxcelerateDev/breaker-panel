@@ -30,7 +30,14 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
   filtro de logs por crate se comió el aviso.
 - **`on_change` avisa en orden de revisión**: `replace` se serializa entero, avisos incluidos. El
   precio es que un callback no puede llamar a `replace` ni a `Watcher::reload` sobre los mismos
-  flags (se esperaría a sí mismo); está documentado en `on_change`.
+  flags, porque se esperaría a sí mismo. `forbid_reentry` lo convierte en un pánico con el
+  motivo, que `call_all` captura: sin él, en el hilo del watcher era un bloqueo mudo y la
+  recarga moría.
+- **Un mismo rechazo se avisa una vez** (`Seen` en `watch.rs`), también el de lectura y
+  también con `reload()` forzado, que devuelve el error pero no vuelve a avisar. Sin esto, un
+  `on_reject` que recargase desbordaba la pila.
+- **La relectura del arranque hace fallar `watch_file`** si el archivo ya no es válido: aún no
+  hay `on_reject` registrado, y aceptarlo dejaba la réplica atrasada sin aviso.
 
 ## Decidido no hacer (revisión de la fase 0, 2026-09-28)
 
