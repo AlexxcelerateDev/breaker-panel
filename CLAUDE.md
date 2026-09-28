@@ -25,6 +25,26 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
 - **El watcher compara contenido, no filtra por path**: con un `ConfigMap` el evento es sobre
   `..data`, no sobre el archivo. Un contenido ya visto (válido o no) no se reaplica.
 - **`TomlError`** envuelve el error de `toml` para no meterlo en el contrato.
+- **`Watcher::on_reject`**: los requisitos solo pedían `tracing` para un rechazo, y en relay eso
+  produjo un fallo mudo: una errata en otra línea dejó el servicio con el estado viejo, y el
+  filtro de logs por crate se comió el aviso.
+- **`on_change` avisa en orden de revisión**: `replace` se serializa entero, avisos incluidos. El
+  precio es que un callback no puede llamar a `replace` ni a `Watcher::reload` sobre los mismos
+  flags (se esperaría a sí mismo); está documentado en `on_change`.
+
+## Decidido no hacer (revisión de la fase 0, 2026-09-28)
+
+- **No saltarse las recargas sin efecto**: distinguirlas exige comparar `meta`, y eso es un
+  bound `M: PartialEq` nuevo. Se avisa con el `Diff` vacío.
+- **No soltar `seen` antes de `replace`**: dos recargas podrían aplicarse al revés. El
+  comentario en `watch.rs::apply` lo explica.
+- **Ni campo `version` ni hash propio para comparar réplicas** (pregunta abierta de §15):
+  una `version` la sube a mano quien edita, y si se olvida da por buena una réplica atrasada; un
+  hash obliga a elegir algoritmo por el consumidor (`DefaultHasher` cambia entre versiones de
+  Rust, SHA-256 añade `sha2` a todos). `Snapshot::toml()` expone el texto aplicado y la app lo
+  compara o lo hashea.
+- **No bajar la MSRV a 1.97**: exige un job del CI con esa versión (`.claude/rules/00`), y el
+  único consumidor en 1.97 es la copia suelta de relay, sin remoto.
 
 ## Trampas
 

@@ -53,6 +53,18 @@ impl Error for FlagError {}
 
 /// Por qué no se pudo cargar o recargar un archivo de flags. Al recargar, cualquiera de estos
 /// deja vigente el snapshot anterior.
+///
+/// `Display` sigue la convención de std: solo el primer nivel, y la causa por `source()`. Con
+/// `{:#}` escribe además la cadena de causas, con la línea y la columna si el TOML no parsea: es
+/// lo que conviene registrar en un log.
+///
+/// ```
+/// use breaker_panel::Snapshot;
+///
+/// let e = Snapshot::<()>::from_toml_str("[flags]\n\"a\" = {").unwrap_err();
+/// assert_eq!(e.to_string(), "el archivo de flags no es válido");
+/// assert!(format!("{e:#}").contains("line 2"));
+/// ```
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum LoadError {
@@ -82,7 +94,8 @@ pub enum LoadError {
         /// La key de la entrada.
         key: String,
     },
-    /// Una key declarada con [`flag_key!`](crate::flag_key) no está en el archivo.
+    /// Una key declarada con [`flag_key!`](crate::flag_key) no está en el archivo. Si faltan
+    /// varias, la primera en orden alfabético: sale la misma en cada build.
     MissingKey {
         /// La key registrada.
         key: String,
@@ -91,6 +104,20 @@ pub enum LoadError {
 
 impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.headline(f)?;
+        if f.alternate() {
+            let mut source = self.source();
+            while let Some(cause) = source {
+                write!(f, ": {cause}")?;
+                source = cause.source();
+            }
+        }
+        Ok(())
+    }
+}
+
+impl LoadError {
+    fn headline(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io { path, .. } => write!(f, "no se pudo leer {}", path.display()),
             Self::Watch { path, .. } => write!(f, "no se pudo vigilar {}", path.display()),

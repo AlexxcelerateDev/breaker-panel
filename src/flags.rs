@@ -7,18 +7,23 @@ use std::{
 use arc_swap::ArcSwap;
 use serde::de::DeserializeOwned;
 
-use crate::{FlagError, LoadError, Snapshot};
+use crate::{FlagError, LoadError, Resolved, Snapshot};
 
-type Listener = dyn Fn(&Diff) + Send + Sync;
+/// Callbacks registrados para un tipo de aviso: los `Diff` de `on_change`, los `LoadError` de
+/// `Watcher::on_reject`.
+pub(crate) type Listeners<T> = Mutex<Vec<Arc<dyn Fn(&T) + Send + Sync>>>;
 
 /// Los flags vivos: el snapshot vigente, reemplazable en caliente, y quién escucha los cambios.
 ///
-/// Las consultas no toman locks ni reservan memoria: un load atómico del snapshot y un lookup.
-/// Cada instancia es independiente —no hay estado global—, así que cada test crea la suya.
+/// Una consulta que deja pasar no toma locks ni reserva memoria: un load atómico del snapshot y
+/// un lookup. Una denegada sí reserva, para construir el [`FlagError`]. Cada instancia es
+/// independiente, así que cada test crea la suya.
 pub struct Flags<M = ()> {
     current: ArcSwap<Snapshot<M>>,
-    // También serializa los `replace`: dos a la vez calcularían el diff contra la misma revisión.
-    listeners: Mutex<Vec<Arc<Listener>>>,
+    listeners: Listeners<Diff>,
+    // Serializa cada `replace` de punta a punta, avisos incluidos: dos a la vez calcularían el
+    // diff contra la misma revisión, y los callbacks verían las revisiones desordenadas.
+    writer: Mutex<()>,
 }
 
 /// Lo que cambió entre dos revisiones. Lo recibe cada callback de [`Flags::on_change`].
@@ -33,6 +38,11 @@ pub struct Diff {
     pub removed: Vec<String>,
     /// Keys que siguen y cambiaron de estado efectivo (con la cascada aplicada).
     pub changed: Vec<String>,
+    /// Keys que siguen apagadas pero cambiaron de motivo: otro `reason` u otro `disabled_by`.
+    /// Es lo que ve el usuario final.
+    ///
+    /// `meta` no entra en el diff: compararlo exigiría `M: PartialEq`.
+    pub reason_changed: Vec<String>,
     /// La revisión reemplazada.
     pub previous_revision: u64,
     /// La revisión nueva.
@@ -65,6 +75,7 @@ impl<M> Flags<M> {
         Self {
             current: ArcSwap::from_pointee(snapshot),
             listeners: Mutex::default(),
+            writer: Mutex::default(),
         }
     }
 
@@ -116,9 +127,13 @@ impl<M> Flags<M> {
     }
 
     /// Sustituye el snapshot vigente, le asigna la revisión siguiente y avisa a los callbacks de
-    /// [`on_change`](Self::on_change). Para fuentes propias (una DB, un endpoint).
+    /// [`on_change`](Self::on_change).
     ///
-    /// No falla: todo `Snapshot` ya viene validado de [`Snapshot::from_toml_str`].
+    /// Sirve para recargar desde otra fuente que entregue el mismo formato (un TOML guardado en
+    /// una base, o servido por un endpoint): `Snapshot` solo se construye desde TOML.
+    ///
+    /// No falla: todo `Snapshot` ya viene validado de [`Snapshot::from_toml_str`]. Vuelve cuando
+    /// todos los callbacks han terminado.
     ///
     /// # Examples
     ///
@@ -134,28 +149,25 @@ impl<M> Flags<M> {
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn replace(&self, mut next: Snapshot<M>) {
-        let (diff, listeners) = {
-            let listeners = self
-                .listeners
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            let prev = self.current.load_full();
-            next.revision = prev.revision + 1;
-            let diff = Diff::new(&prev, &next);
-            self.current.store(Arc::new(next));
-            (diff, listeners.clone())
-        };
+        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let prev = self.current.load_full();
+        next.revision = prev.revision + 1;
+        let diff = Diff::new(&prev, &next);
+        self.current.store(Arc::new(next));
         tracing::info!(revision = diff.revision, "flags recargados");
-        // Fuera del lock: un callback que registre otro o llame a `replace` no se bloquea.
-        notify(&listeners, &diff);
+        call_all(&self.listeners, &diff, "on_change");
     }
 
     /// Registra un callback que recibe el [`Diff`] de cada reemplazo aplicado. Uno que falla
-    /// no lo dispara.
+    /// no lo dispara; uno sin cambios visibles (un comentario, un `reload` forzado) sí, con las
+    /// listas vacías.
     ///
-    /// Corre en el hilo que hizo el reemplazo (el del watcher, al recargar el archivo): tiene
-    /// que volver rápido. Si entra en pánico, se registra con `tracing` y el resto de callbacks
-    /// se llaman igual.
+    /// Los avisos llegan uno detrás de otro y en orden de revisión, en el hilo que hizo el
+    /// reemplazo (el del watcher, al recargar el archivo): el callback tiene que volver rápido.
+    /// Desde él se puede consultar y registrar otro callback, pero **no** llamar a
+    /// [`replace`](Self::replace) ni a `Watcher::reload` sobre estos mismos flags: esperarían a
+    /// que terminase el aviso en curso, que es el suyo. Si entra en pánico, se registra con
+    /// `tracing` y el resto de callbacks se llaman igual.
     ///
     /// # Examples
     ///
@@ -176,11 +188,7 @@ impl<M> Flags<M> {
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn on_change(&self, f: impl Fn(&Diff) + Send + Sync + 'static) {
-        let mut listeners = self
-            .listeners
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        listeners.push(Arc::new(f));
+        subscribe(&self.listeners, f);
     }
 }
 
@@ -194,32 +202,53 @@ impl<M: fmt::Debug> fmt::Debug for Flags<M> {
 
 impl Diff {
     fn new<M>(prev: &Snapshot<M>, next: &Snapshot<M>) -> Self {
-        let changed = next
-            .flags
-            .iter()
-            .filter(|(key, r)| prev.flags.get(*key).is_some_and(|p| p.enabled != r.enabled));
+        let same_state = |p: &Resolved<M>, r: &Resolved<M>| p.enabled == r.enabled;
+        let same_cause = |p: &Resolved<M>, r: &Resolved<M>| {
+            (&p.disabled_by, &p.reason) == (&r.disabled_by, &r.reason)
+        };
         Self {
             added: only_in(next, prev),
             removed: only_in(prev, next),
-            changed: changed.map(|(key, _)| key.clone()).collect(),
+            changed: in_both_where(prev, next, |p, r| !same_state(p, r)),
+            reason_changed: in_both_where(prev, next, |p, r| same_state(p, r) && !same_cause(p, r)),
             previous_revision: prev.revision,
             revision: next.revision,
         }
     }
 }
 
+pub(crate) fn subscribe<T>(listeners: &Listeners<T>, f: impl Fn(&T) + Send + Sync + 'static) {
+    let mut listeners = listeners.lock().unwrap_or_else(PoisonError::into_inner);
+    listeners.push(Arc::new(f));
+}
+
+/// Llama a los callbacks fuera del lock de la lista, para que uno pueda registrar otro.
+///
 /// Un pánico en un callback no puede dejar sin aviso a los siguientes ni, al recargar desde el
 /// watcher, matar su hilo: la recarga en caliente se pararía sin que nada lo dijera.
-fn notify(listeners: &[Arc<Listener>], diff: &Diff) {
+pub(crate) fn call_all<T>(listeners: &Listeners<T>, arg: &T, hook: &str) {
+    let listeners = listeners
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
     for listener in listeners {
-        let called = panic::catch_unwind(AssertUnwindSafe(|| listener(diff)));
+        let called = panic::catch_unwind(AssertUnwindSafe(|| listener(arg)));
         if called.is_err() {
-            tracing::error!(
-                revision = diff.revision,
-                "un callback de on_change entró en pánico"
-            );
+            tracing::error!(hook, "un callback entró en pánico");
         }
     }
+}
+
+fn in_both_where<M>(
+    prev: &Snapshot<M>,
+    next: &Snapshot<M>,
+    differs: impl Fn(&Resolved<M>, &Resolved<M>) -> bool,
+) -> Vec<String> {
+    let keys = next
+        .flags
+        .iter()
+        .filter(|(key, r)| prev.flags.get(*key).is_some_and(|p| differs(p, r)));
+    keys.map(|(key, _)| key.clone()).collect()
 }
 
 fn only_in<M>(a: &Snapshot<M>, b: &Snapshot<M>) -> Vec<String> {
@@ -260,10 +289,55 @@ mod tests {
             removed: vec!["d".into()],
             // `a.b` no cambió en el archivo, pero su estado efectivo sí: la cascada cuenta.
             changed: vec!["a".into(), "a.b".into()],
+            reason_changed: vec![],
             previous_revision: 0,
             revision: 1,
         };
         assert_eq!(rx.try_recv(), Ok(esperado));
+    }
+
+    #[test]
+    fn un_cambio_solo_de_motivo_sale_en_reason_changed() {
+        let flags = Flags::new(snap(
+            r#"[flags]
+            "a"   = { enabled = false, reason = "migración" }
+            "a.b" = { enabled = true }
+            "c"   = { enabled = false, reason = "igual" }"#,
+        ));
+        let (tx, rx) = std::sync::mpsc::channel();
+        flags.on_change(move |diff| tx.send(diff.clone()).unwrap());
+
+        flags.replace(snap(
+            r#"[flags]
+            "a"   = { enabled = false, reason = "migración, vuelve a las 18:00" }
+            "a.b" = { enabled = true }
+            "c"   = { enabled = false, reason = "igual" }"#,
+        ));
+
+        let diff = rx.try_recv().unwrap();
+        assert!(diff.changed.is_empty(), "{diff:?}");
+        // `a.b` hereda el motivo de `a`: también cambió lo que ve su usuario.
+        assert_eq!(diff.reason_changed, ["a", "a.b"]);
+    }
+
+    #[test]
+    fn con_replace_concurrentes_los_avisos_llegan_en_orden_de_revision() {
+        let flags = Arc::new(Flags::new(snap("[flags]")));
+        let (tx, rx) = std::sync::mpsc::channel();
+        flags.on_change(move |diff| tx.send(diff.revision).unwrap());
+
+        let hilos: Vec<_> = (0..8)
+            .map(|_| {
+                let flags = Arc::clone(&flags);
+                std::thread::spawn(move || (0..500).for_each(|_| flags.replace(snap("[flags]"))))
+            })
+            .collect();
+        hilos.into_iter().for_each(|h| h.join().unwrap());
+
+        // Un listener que guarda "el último estado" (un espejo, un audit log) no puede quedarse
+        // con uno viejo porque dos avisos se crucen.
+        let revisiones: Vec<u64> = rx.try_iter().collect();
+        assert_eq!(revisiones, (1..=4000).collect::<Vec<_>>());
     }
 
     #[test]

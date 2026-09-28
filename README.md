@@ -111,18 +111,61 @@ La traducción la decide la app. Una sugerencia:
 | `InvalidSegment` | 400 |
 | `Unknown` en una key armada con input del usuario | 400 (método inexistente) |
 | `Unknown` en cualquier otra key | 500 (bug de configuración) |
-| `Disabled` | 503 (o 409/422) con el `reason` |
+| `Disabled` | 503 con el `reason` |
+
+Para `Disabled`, 503 y no 409 ni 422: un cliente que reintenta trata esos dos como permanentes y
+abandona, cuando un kill switch es por definición temporal.
 
 ## Recarga en caliente (feature `watch`)
 
 `Flags::watch_file` vigila el **directorio** del archivo, así que ve los guardados atómicos de
-los editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes. Para los bind
-mounts de Docker en Mac y Windows, que no propagan eventos, `Flags::poll_file` mira el archivo
-cada cierto intervalo. `Watcher::reload` fuerza la recarga (SIGHUP, endpoint admin); soltar el
-`Watcher` deja de vigilar. El watcher corre en su propio hilo: no hace falta runtime async.
+los editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes.
+`Watcher::reload` fuerza la recarga (SIGHUP, endpoint admin); soltar el `Watcher` deja de vigilar.
+El watcher corre en su propio hilo: no hace falta runtime async. `Watcher` es `Send + Sync`, así
+que cabe en el estado de axum.
+
+- **Una recarga rechazada deja vigente el snapshot anterior**: el archivo dice una cosa y el
+  servicio hace otra. Regístrala con `Watcher::on_reject`; si no, solo queda en el log de la
+  librería, y un filtro por crate lo descarta (ver [Observabilidad](#observabilidad)).
+- **El archivo, solo en su directorio**: cualquier cambio a su lado lo relee, y `poll_file`
+  hashea todo lo que hay en él en cada vuelta.
+- **Docker: monta el directorio, no el archivo.** Con un bind mount de un solo archivo, un
+  guardado atómico en un host Linux crea un inodo nuevo y el contenedor se queda con el viejo
+  para siempre, aunque sondee. En Docker Desktop (Mac, Windows) los eventos no cruzan el montaje:
+  ahí, `Flags::poll_file`.
 
 Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
-informativo y el `require` de la operación (`POST`), la autoridad.
+informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por
+proceso: no sirve para comparar réplicas. Para eso, `Snapshot::toml()` devuelve el TOML aplicado
+tal cual, y un health check puede usarlo de dos formas:
+
+- **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se aplicó.
+  Cubre también un evento que nunca llegó (Docker Desktop con `watch_file`), que no llega a
+  `on_reject` porque no hay nada que rechazar. Tolera unos cientos de milisegundos de diferencia:
+  es lo que tarda en recargar.
+- **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el del
+  archivo desplegado. Con SHA-256 es el mismo valor que `sha256sum flags.toml`; el algoritmo lo
+  pone la app, no esta librería.
+
+## Observabilidad
+
+`on_change` recibe un `Diff` por cada recarga aplicada, en orden de revisión: keys añadidas,
+quitadas, con otro estado efectivo (`changed`) o con otro motivo (`reason_changed`). Los cambios
+de `meta` no entran. Una recarga sin cambios visibles (un comentario) también avisa, con las
+listas vacías.
+
+La librería emite estos eventos de `tracing`:
+
+| Evento | Target | Nivel |
+|---|---|---|
+| Recarga aplicada, con su revisión | `breaker_panel::flags` | `info` |
+| Recarga rechazada, con la cadena de causas (línea y columna si el TOML no parsea) | `breaker_panel::watch` | `warn` |
+| Un callback de `on_change` u `on_reject` entró en pánico | `breaker_panel::flags` | `error` |
+| `require` denegado: **uno por llamada**, así que bajo carga con un switch apagado es una línea por petición | `breaker_panel::snapshot` | `debug` |
+
+Si tu filtro es por crate (`EnvFilter` con `mi_app=info`), añade `breaker_panel=info` o usa
+`on_reject`. Para registrar un `LoadError` completo, `{:#}`: su `Display` a secas solo da el
+primer nivel.
 
 ## Keys registradas (feature `registry`)
 
@@ -143,6 +186,10 @@ una recarga que la quite se rechaza. Una key mal formada (`"payments.Methods"`) 
 compila. Las keys dinámicas (`format!`) no se validan al arrancar: si no existen, dan `Unknown`
 en runtime.
 
+El registro lo arma el linker por binario: es el único estado global del crate, y es de solo
+lectura. Consecuencia en tus tests: todo TOML que carguen tiene que traer las keys registradas en
+ese binario.
+
 ## Cuándo usar esto y cuándo no
 
 - **flagd en modo archivo** (`open-feature-flagd`) evalúa en local, recarga el archivo y trae
@@ -150,5 +197,6 @@ en runtime.
 - **LaunchDarkly, Unleash**: si necesitas el plano de control —UI, auditoría, permisos,
   analítica—.
 - **breaker-panel**: si lo que quieres es jerarquía con cascada y `disabled_by`, keys validadas
-  al arrancar, una API mínima sin estado global y un archivo TOML revisado por PR. La auditoría,
+  al arrancar, una API mínima sin estado que se escriba en runtime y un archivo TOML revisado
+  por PR. La auditoría,
   el versionado y el rollback son los de Git; `on_change` avisa de cada cambio aplicado.

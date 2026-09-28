@@ -52,8 +52,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/flags.toml");
     // Vive lo que `main`: soltarlo pararía la recarga.
-    let (flags, _watcher) = Flags::<Meta>::watch_file(path)?;
+    let (flags, watcher) = Flags::<Meta>::watch_file(path)?;
     flags.on_change(|diff| tracing::info!(?diff, "cambio aplicado"));
+    // Con el target de la app: un filtro por crate no lo esconde. Si solo quedara en el log de
+    // la librería, un archivo roto dejaría el servicio con el estado viejo sin que nadie lo viera.
+    watcher.on_reject(|e| tracing::error!("flags.toml rechazado, sigue el anterior: {e:#}"));
 
     let app = Router::new()
         .route("/payment-methods", get(payment_methods))

@@ -33,11 +33,24 @@
 //! - `watch` (default): [`Flags::watch_file`] y [`Flags::poll_file`], la recarga en caliente.
 //! - `registry` (default): [`flag_key!`], keys declaradas en código y validadas en cada carga.
 //!
+//! # Observabilidad
+//!
+//! Una recarga rechazada deja vigente el snapshot anterior. Regístrala con
+//! [`Watcher::on_reject`]: si no, solo queda en el log de la librería, que un filtro por crate
+//! descarta. Para registrar un [`LoadError`] completo, `{:#}`. Eventos de `tracing`:
+//!
+//! | Evento | Target | Nivel |
+//! |---|---|---|
+//! | Recarga aplicada, con su revisión | `breaker_panel::flags` | `info` |
+//! | Recarga rechazada, con la cadena de causas (línea y columna si el TOML no parsea) | `breaker_panel::watch` | `warn` |
+//! | Un callback de `on_change` u `on_reject` entró en pánico | `breaker_panel::flags` | `error` |
+//! | `require` denegado: **uno por llamada**, así que bajo carga con un switch apagado es una línea por petición | `breaker_panel::snapshot` | `debug` |
+//!
 //! # Varias réplicas
 //!
 //! Cada proceso recarga por su cuenta, así que mientras el archivo se propaga dos réplicas
 //! pueden responder distinto. Un listado (`GET`) es informativo; la autoridad es el `require`
-//! de la operación (`POST`).
+//! de la operación (`POST`). Para comprobar qué aplicó cada una, [`Snapshot::toml`].
 //!
 //! La guía de modelado de keys está en el README.
 

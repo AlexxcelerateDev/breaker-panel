@@ -19,8 +19,12 @@ pub static KEYS: [&'static str];
 /// Declara una key como `static` y la registra: toda carga —la inicial y cada recarga— falla si
 /// el archivo no la tiene.
 ///
-/// El registro es por binario (lo arma el linker): en los tests, cada fichero de `tests/` solo
-/// ve las keys que declara él. Las keys armadas con `format!` no se registran; si faltan, dan
+/// El registro es por binario (lo arma el linker): es estado global, aunque de solo lectura.
+/// Por eso el mismo texto puede cargar en un binario y fallar en otro, y cada test del
+/// consumidor que construya un `Snapshot` tiene que incluir todas las keys registradas en su
+/// binario. En los tests de este crate, cada fichero de `tests/` solo ve las que declara él.
+///
+/// Las keys armadas con `format!` no se registran; si faltan, dan
 /// [`FlagError::Unknown`](crate::FlagError::Unknown) en runtime.
 ///
 /// # Examples
@@ -61,7 +65,8 @@ macro_rules! flag_key {
 }
 
 pub(crate) fn check<M>(flags: &BTreeMap<String, Resolved<M>>) -> Result<(), LoadError> {
-    match KEYS.iter().find(|key| !flags.contains_key(**key)) {
+    // La menor y no la primera: el orden de `KEYS` lo pone el linker y cambia entre builds.
+    match KEYS.iter().filter(|key| !flags.contains_key(**key)).min() {
         Some(key) => Err(LoadError::MissingKey {
             key: (*key).to_owned(),
         }),

@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
@@ -12,7 +11,10 @@ use notify_debouncer_full::{
 };
 use serde::de::DeserializeOwned;
 
-use crate::{Flags, LoadError, Snapshot};
+use crate::{
+    Flags, LoadError, Snapshot,
+    flags::{Listeners, call_all, subscribe},
+};
 
 /// Un guardado de editor (temp + rename) llega como varios eventos: se recarga una vez, cuando
 /// dejan de llegar durante este tiempo.
@@ -29,7 +31,10 @@ type Reload = Arc<dyn Fn(bool) -> Result<(), LoadError> + Send + Sync>;
 /// también vale) o en el estado de la app, junto a los flags.
 pub struct Watcher {
     reload: Reload,
-    _debouncer: Box<dyn Send>,
+    rejects: Arc<Listeners<LoadError>>,
+    // Solo se mantiene vivo, nunca se usa: el `Mutex` es para que `Watcher` sea `Sync` (el
+    // estado de axum lo exige) sin depender de que el debouncer de cada plataforma lo sea.
+    _debouncer: Mutex<Box<dyn Send>>,
 }
 
 impl Watcher {
@@ -53,6 +58,31 @@ impl Watcher {
     pub fn reload(&self) -> Result<(), LoadError> {
         (self.reload)(true)
     }
+
+    /// Registra un callback que recibe el error de cada recarga rechazada, la del watcher y la
+    /// de [`reload`](Self::reload): un archivo roto, borrado o sin una key registrada.
+    ///
+    /// Un rechazo deja vigente el snapshot anterior, así que **sin esto solo se ve en el log de
+    /// la librería** (target `breaker_panel::watch`), que un filtro por crate descarta: el
+    /// archivo dice una cosa y el servicio hace otra, sin que nadie lo sepa. Aquí se puede
+    /// registrar con el target propio, contar una métrica o marcar un health check.
+    ///
+    /// Corre en el hilo que intentó la recarga; como los de `on_change`, un pánico se registra y
+    /// no afecta a los demás.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use breaker_panel::Flags;
+    ///
+    /// let (flags, watcher) = Flags::<()>::watch_file("flags.toml")?;
+    /// // `{:#}` incluye la causa: la línea y la columna si el TOML no parsea.
+    /// watcher.on_reject(|e| eprintln!("flags.toml rechazado, sigue el anterior: {e:#}"));
+    /// # Ok::<(), breaker_panel::LoadError>(())
+    /// ```
+    pub fn on_reject(&self, f: impl Fn(&LoadError) + Send + Sync + 'static) {
+        subscribe(&self.rejects, f);
+    }
 }
 
 impl fmt::Debug for Watcher {
@@ -65,9 +95,14 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// Carga los flags de un archivo y lo recarga en caliente cuando cambia.
     ///
     /// Vigila el directorio del archivo, no el archivo: así ve los guardados atómicos de los
-    /// editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes. Una
-    /// recarga que falla se registra con `tracing` y deja vigente el snapshot anterior. El
-    /// watcher corre en su propio hilo y no necesita runtime async.
+    /// editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes. Por eso
+    /// conviene que el archivo esté solo en su directorio: cualquier cambio a su lado lo relee.
+    /// En Docker, monta el directorio: con un bind mount de un solo archivo, un guardado
+    /// atómico en el host deja al contenedor con el inodo viejo para siempre.
+    ///
+    /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
+    /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime
+    /// async.
     ///
     /// La recarga dura lo que viva el [`Watcher`] devuelto: no lo sueltes con `_`.
     ///
@@ -129,16 +164,34 @@ where
 {
     let text = read(path)?;
     let flags = Arc::new(Flags::new(Snapshot::from_toml_str(&text)?));
-    let reload = reloader(Arc::clone(&flags), path.to_owned(), text);
+    let rejects = Arc::new(Listeners::default());
+    let reload = reloader(
+        Arc::clone(&flags),
+        path.to_owned(),
+        text,
+        Arc::clone(&rejects),
+    );
     let debouncer = debounce::<W>(path, config, Arc::clone(&reload))?;
-    let watcher = Watcher {
-        reload,
-        _debouncer: Box::new(debouncer),
-    };
-    Ok((flags, watcher))
+    // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si el
+    // contenido es el mismo, no hace nada; si el nuevo es inválido, queda registrado.
+    let _ = reload(false);
+    let _debouncer = Mutex::new(Box::new(debouncer) as Box<dyn Send>);
+    Ok((
+        flags,
+        Watcher {
+            reload,
+            rejects,
+            _debouncer,
+        },
+    ))
 }
 
-fn reloader<M>(flags: Arc<Flags<M>>, path: PathBuf, text: String) -> Reload
+fn reloader<M>(
+    flags: Arc<Flags<M>>,
+    path: PathBuf,
+    text: String,
+    rejects: Arc<Listeners<LoadError>>,
+) -> Reload
 where
     M: DeserializeOwned + Default + Send + Sync + 'static,
 {
@@ -146,9 +199,11 @@ where
     Arc::new(move |force| {
         let result = apply(&flags, &path, &seen, force);
         if let Err(e) = &result {
-            // Como `dyn Error`, el subscriber registra también la cadena de `source()`.
-            let error: &(dyn Error + 'static) = e;
+            // `{:#}` y no el error como campo: el formateador JSON de `tracing-subscriber` no
+            // pinta `source()`, y se perderían la línea y la columna.
+            let error = format!("{e:#}");
             tracing::warn!(path = %path.display(), error, "recarga de flags rechazada");
+            call_all(&rejects, e, "on_reject");
         }
         result
     })
@@ -168,6 +223,9 @@ where
     M: DeserializeOwned + Default,
 {
     let text = read(path)?;
+    // Tomado hasta después de `replace`, a propósito: soltarlo antes dejaría que dos recargas
+    // (la del watcher y un `reload` manual) se aplicaran al revés, y el snapshot vigente sería
+    // el viejo con `seen` diciendo que ya se aplicó el nuevo.
     let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
     if !force && *seen == text {
         return Ok(());

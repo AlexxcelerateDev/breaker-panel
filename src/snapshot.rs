@@ -28,6 +28,7 @@ pub struct Snapshot<M = ()> {
     // réplica. El lookup sigue siendo uno, sin recorrer el árbol.
     pub(crate) flags: BTreeMap<String, Resolved<M>>,
     pub(crate) revision: u64,
+    toml: String,
 }
 
 #[derive(Deserialize)]
@@ -78,7 +79,12 @@ impl<M: DeserializeOwned + Default> Snapshot<M> {
         let flags = resolve(file.flags);
         #[cfg(feature = "registry")]
         crate::registry::check(&flags)?;
-        Ok(Self { flags, revision: 0 })
+        let toml = s.to_owned();
+        Ok(Self {
+            flags,
+            revision: 0,
+            toml,
+        })
     }
 }
 
@@ -180,6 +186,35 @@ impl<M> Snapshot<M> {
     /// ```
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// El TOML del que se cargó, tal cual.
+    ///
+    /// Es lo que permite comprobar que una réplica aplicó lo último, cosa que `revision()` no
+    /// dice (es un contador por proceso):
+    ///
+    /// - **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se
+    ///   aplicó. Puede ser un rechazo, o un evento que nunca llegó (un bind mount de Docker
+    ///   Desktop con [`Flags::watch_file`](crate::Flags::watch_file)), y eso último no lo ve
+    ///   ningún callback. Tolera la diferencia unos cientos de milisegundos: es lo que tarda en
+    ///   recargar.
+    /// - **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el
+    ///   del archivo desplegado. El algoritmo es de la app: con SHA-256, el mismo valor que
+    ///   `sha256sum flags.toml`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use breaker_panel::Snapshot;
+    ///
+    /// let archivo = "[flags]\n\"payments\" = { enabled = true }\n";
+    /// let snap: Snapshot = Snapshot::from_toml_str(archivo)?;
+    /// // En un `/health`: `std::fs::read_to_string(path)? != snap.toml()` es una réplica atrasada.
+    /// assert_eq!(snap.toml(), archivo);
+    /// # Ok::<(), breaker_panel::LoadError>(())
+    /// ```
+    pub fn toml(&self) -> &str {
+        &self.toml
     }
 }
 
