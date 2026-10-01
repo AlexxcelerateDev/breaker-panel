@@ -1,7 +1,7 @@
 use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     Flags, LoadError, Snapshot,
-    flags::{Listeners, call_all, subscribe},
+    flags::{Listeners, call_all, lock, subscribe},
 };
 
 /// Un guardado de editor (temp + rename) llega como varios eventos: se recarga una vez, cuando
@@ -255,7 +255,7 @@ impl<M: DeserializeOwned + Default> Source<M> {
         // Leer y aplicar con `seen` tomado, `replace` incluido, a propósito: si no, dos recargas
         // (la del watcher y un `reload` manual) podrían aplicarse al revés, y el snapshot vigente
         // sería el viejo con `seen` diciendo que ya se aplicó el nuevo.
-        let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut seen = lock(&self.seen);
         let read = fs::read_to_string(&self.path);
         let now = match &read {
             Ok(text) => Seen::Text(text.clone()),

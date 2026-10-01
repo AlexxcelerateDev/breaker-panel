@@ -1,4 +1,4 @@
-use std::{error::Error, fmt, io, path::PathBuf};
+use std::{error::Error, fmt, io, iter, path::PathBuf};
 
 /// Por qué una consulta no deja pasar.
 ///
@@ -106,10 +106,8 @@ impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.headline(f)?;
         if f.alternate() {
-            let mut source = self.source();
-            while let Some(cause) = source {
+            for cause in iter::successors(self.source(), |&cause| cause.source()) {
                 write!(f, ": {cause}")?;
-                source = cause.source();
             }
         }
         Ok(())

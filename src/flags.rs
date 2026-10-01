@@ -1,7 +1,7 @@
 use std::{
     fmt,
     panic::{self, AssertUnwindSafe},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
     thread::{self, ThreadId},
 };
 
@@ -162,7 +162,7 @@ impl<M> Flags<M> {
     /// ```
     pub fn replace(&self, mut next: Snapshot<M>) {
         self.forbid_reentry();
-        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let _writer = lock(&self.writer);
         let prev = self.current.load_full();
         next.revision = prev.revision + 1;
         let diff = Diff::new(&prev, &next);
@@ -177,10 +177,7 @@ impl<M> Flags<M> {
     /// esperaría a sí mismo: bloqueado para siempre, y en el hilo del watcher, sin que nada lo
     /// diga. Mejor un pánico con el motivo, que `call_all` captura y registra.
     pub(crate) fn forbid_reentry(&self) {
-        let notifying = *self
-            .notifying
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let notifying = *lock(&self.notifying);
         assert_ne!(
             notifying,
             Some(thread::current().id()),
@@ -189,10 +186,7 @@ impl<M> Flags<M> {
     }
 
     fn set_notifying(&self, thread: Option<ThreadId>) {
-        *self
-            .notifying
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = thread;
+        *lock(&self.notifying) = thread;
     }
 
     /// Registra un callback que recibe el [`Diff`] de cada reemplazo aplicado. Uno que falla
@@ -255,9 +249,22 @@ impl Diff {
     }
 }
 
+/// Bloquea un mutex del crate ignorando el poisoning, a propósito.
+///
+/// Un `Mutex` de std queda envenenado si un hilo entra en pánico con él tomado, y desde entonces
+/// `lock` devuelve `Err` para avisar de que los datos pueden estar a medias. Aquí no pueden:
+/// cada sección crítica es una asignación o un `push`, o el mutex guarda `()`. Hacer `unwrap`
+/// sería peor que inútil: tras un solo pánico, cada `replace` y cada recarga posteriores
+/// fallarían también, y la recarga en caliente moriría para siempre.
+///
+/// Cuando se estabilice `std::sync::nonpoison::Mutex` (feature `nonpoison_mutex`), los campos
+/// pasan a ese tipo y este helper sobra.
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 pub(crate) fn subscribe<T>(listeners: &Listeners<T>, f: impl Fn(&T) + Send + Sync + 'static) {
-    let mut listeners = listeners.lock().unwrap_or_else(PoisonError::into_inner);
-    listeners.push(Arc::new(f));
+    lock(listeners).push(Arc::new(f));
 }
 
 /// Llama a los callbacks fuera del lock de la lista, para que uno pueda registrar otro.
@@ -265,10 +272,7 @@ pub(crate) fn subscribe<T>(listeners: &Listeners<T>, f: impl Fn(&T) + Send + Syn
 /// Un pánico en un callback no puede dejar sin aviso a los siguientes ni, al recargar desde el
 /// watcher, matar su hilo: la recarga en caliente se pararía sin que nada lo dijera.
 pub(crate) fn call_all<T>(listeners: &Listeners<T>, arg: &T, hook: &str) {
-    let listeners = listeners
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+    let listeners = lock(listeners).clone();
     for listener in listeners {
         let called = panic::catch_unwind(AssertUnwindSafe(|| listener(arg)));
         if called.is_err() {

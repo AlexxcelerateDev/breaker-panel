@@ -47,7 +47,9 @@ en `tests/fixtures/`, nunca en un `setup` global.
 
 - Nombre del test = comportamiento (`segment_rechaza_el_punto`), no `test_1`.
 - Un comportamiento por test; arrange/act/assert reconocibles.
-- `assert_eq!` sobre `assert!(a == b)`: muestra el valor al fallar.
+- `assert_eq!` sobre `assert!(a == b)`: muestra el valor al fallar. Por lo mismo,
+  `assert_matches!` (`use std::assert_matches;`, desde 1.96) sobre `assert!(matches!(..))`: enseña
+  el valor y el patrón sin pasarle un `"{x:?}"` a mano.
 - `#[expect(...)]`, nunca `#[allow(...)]` (ver 00).
 - Nada de `sleep` ni esperas por reloj: si hace falta, faltaba inyectar el tiempo.
 

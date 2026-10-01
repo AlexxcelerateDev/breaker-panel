@@ -3,6 +3,7 @@
 #![cfg(feature = "watch")]
 
 use std::{
+    assert_matches,
     error::Error,
     fs::{self, File, FileTimes},
     io::{self, Write},
@@ -221,7 +222,7 @@ fn reload_invalido_conserva_el_snapshot_y_no_avisa() -> TestResult {
     fs::write(&path, SIN_REASON)?;
     let r = watcher.reload();
 
-    assert!(matches!(r, Err(LoadError::MissingReason { .. })), "{r:?}");
+    assert_matches!(r, Err(LoadError::MissingReason { .. }));
     // El rechazo es observable sin depender del log de la librería.
     assert!(next(&rejected)?.contains("sin `reason`"));
     assert_eq!(flags.require("payments"), Ok(()));
@@ -237,6 +238,6 @@ fn reload_invalido_conserva_el_snapshot_y_no_avisa() -> TestResult {
 fn arrancar_sin_archivo_falla() -> TestResult {
     let path = flags_file("sin_archivo")?.with_file_name("no_existe.toml");
     let r = Flags::<()>::watch_file(&path);
-    assert!(matches!(r, Err(LoadError::Io { .. })), "{r:?}");
+    assert_matches!(r, Err(LoadError::Io { .. }));
     Ok(())
 }

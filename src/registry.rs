@@ -33,6 +33,7 @@ pub static KEYS: [&'static str];
 /// un solo binario, y la key registrada se exigiría en todos.
 ///
 /// ```rust,standalone_crate
+/// use std::assert_matches;
 /// use breaker_panel::{Flags, LoadError, flag_key};
 ///
 /// flag_key!(CHARGE = "payments.ops.charge");
@@ -40,7 +41,7 @@ pub static KEYS: [&'static str];
 /// let flags: Flags = Flags::from_toml_str("[flags]\n\"payments.ops.charge\" = { enabled = true }")?;
 /// flags.require(CHARGE)?;
 ///
-/// assert!(matches!(Flags::<()>::from_toml_str("[flags]"), Err(LoadError::MissingKey { .. })));
+/// assert_matches!(Flags::<()>::from_toml_str("[flags]"), Err(LoadError::MissingKey { .. }));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
