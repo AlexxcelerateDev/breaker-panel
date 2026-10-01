@@ -200,8 +200,9 @@ impl<M> Flags<M> {
     /// reemplazo (el del watcher, al recargar el archivo): el callback tiene que volver rápido.
     /// Desde él se puede consultar y registrar otro callback, pero **no** llamar a
     /// [`replace`](Self::replace) ni a `Watcher::reload` sobre estos mismos flags: se esperarían
-    /// a sí mismos, así que entran en pánico. Un callback que entra en pánico se registra con
-    /// `tracing`, y el resto se llaman igual.
+    /// a sí mismos, así que entran en pánico. Eso solo se detecta en el mismo hilo: si el
+    /// callback se lo encarga a otro hilo y lo espera, los dos se bloquean para siempre. Un
+    /// callback que entra en pánico se registra con `tracing`, y el resto se llaman igual.
     ///
     /// # Examples
     ///

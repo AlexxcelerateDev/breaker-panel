@@ -122,7 +122,8 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// los de [`Snapshot::from_toml_str`] si no es válido, y [`LoadError::Watch`] si el sistema
     /// no deja vigilar el directorio. Un cambio entre la primera lectura y el `watch` no
     /// generaría evento, así que se relee una vez al empezar a vigilar: si para entonces el
-    /// archivo ya no es válido o no está, también falla.
+    /// archivo ya no es válido o no está, también falla. Con una escritura en el sitio (no
+    /// atómica) a la vez que el arranque, cualquiera de las dos lecturas puede pillarlo a medias.
     ///
     /// # Examples
     ///

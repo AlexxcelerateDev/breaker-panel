@@ -127,6 +127,9 @@ que cabe en el estado de axum.
 - **Una recarga rechazada deja vigente el snapshot anterior**: el archivo dice una cosa y el
   servicio hace otra. Regístrala con `Watcher::on_reject`; si no, solo queda en el log de la
   librería, y un filtro por crate lo descarta (ver [Observabilidad](#observabilidad)).
+- **Guárdalo de forma atómica** (temporal + rename, como los editores y los `ConfigMap`): una
+  escritura en el sitio se puede leer a medias. En caliente eso es un rechazo que llega a
+  `on_reject` y se corrige solo al terminar la escritura; al arrancar, un `watch_file` que falla.
 - **El archivo, solo en su directorio**: cualquier cambio a su lado lo relee, y `poll_file`
   hashea todo lo que hay en él en cada vuelta.
 - **Docker: monta el directorio, no el archivo.** Con un bind mount de un solo archivo, un
