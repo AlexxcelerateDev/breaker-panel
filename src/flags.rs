@@ -105,6 +105,9 @@ impl<M> Flags<M> {
     /// assert!(flags.require("payments.ops.charge").is_err());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    // El nombre que trae quien viene de Unleash u OpenFeature: con el alias, rustdoc lo
+    // encuentra y rustc sugiere `require` (desde 1.99, por delante de nombres parecidos).
+    #[doc(alias = "is_enabled")]
     pub fn require(&self, key: impl AsRef<str>) -> Result<(), FlagError> {
         self.current.load().require(key)
     }

@@ -111,6 +111,9 @@ impl<M> Snapshot<M> {
     /// assert_eq!((disabled_by.as_str(), reason.as_str()), ("payments", "mantenimiento"));
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
+    // El nombre que trae quien viene de Unleash u OpenFeature: con el alias, rustdoc lo
+    // encuentra y rustc sugiere `require` (desde 1.99, por delante de nombres parecidos).
+    #[doc(alias = "is_enabled")]
     pub fn require(&self, key: impl AsRef<str>) -> Result<(), FlagError> {
         let key = key.as_ref();
         let resolved = self.get(key)?;

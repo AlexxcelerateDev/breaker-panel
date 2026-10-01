@@ -16,6 +16,7 @@ CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked
 cargo test --locked
 CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked
 cargo deny check
+cargo +1.98.0 check --all-targets --locked
 ```
 
 Para en el primer fallo, arréglalo y **vuelve a empezar desde ese paso** (un arreglo de clippy
@@ -26,6 +27,10 @@ puede romper el formato).
 - **`--locked`**: si falla por el lockfile, el arreglo es actualizarlo a propósito y decirlo, no
   quitar la bandera.
 - **`cargo test` sin `--lib`**: con `--lib` los doctests no corren.
+- El último paso compila con la MSRV (`rust-version`), que va por debajo del pin. Si falta el
+  toolchain: `rustup toolchain install 1.98.0 --profile minimal`. Si falla por una API de std
+  demasiado nueva, el arreglo es la alternativa antigua, no subir la MSRV: eso lo decide el
+  usuario.
 - `cargo deny` puede no estar instalado: `cargo install cargo-deny --locked`; si no puedes,
   repórtalo como paso no ejecutado.
 

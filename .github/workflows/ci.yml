@@ -78,3 +78,23 @@ jobs:
 
       - name: Auditoría de dependencias
         run: cargo deny check
+
+  # La MSRV (`rust-version`) va por debajo del pin de `rust-toolchain.toml`: compilar con esa
+  # versión exacta es lo que impide que sea una promesa sin probar. Basta con compilar lib, tests
+  # y ejemplos; clippy y los tests ya corren con el pin en el job `ci`.
+  msrv:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # Tiene que coincidir con `rust-version` de `Cargo.toml`.
+          toolchain: "1.98.0"
+          rustflags: ""
+
+      - name: Compilar con la MSRV
+        run: cargo +1.98.0 check --all-targets --locked

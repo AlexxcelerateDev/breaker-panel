@@ -2,14 +2,17 @@
 
 ## Versión de Rust
 
-- **Pin**: `rust-toolchain.toml` fija `channel = "1.98.1"` con `rustfmt` y `clippy`. Es el
+- **Pin**: `rust-toolchain.toml` fija `channel = "1.99.0"` con `rustfmt` y `clippy`. Es el
   toolchain de quien desarrolla el crate; al consumidor no le llega.
 - **MSRV** (`rust-version`): en una librería es una **promesa al consumidor** — cargo se niega a
-  compilarla con un toolchain anterior. Hoy coincide con el pin, y por eso el CI la verifica sin
-  job aparte.
-  - **Bajarla** para llegar a más consumidores exige un job del CI que compile con esa versión
-    exacta. Declarar una MSRV que nada compila es escribir una versión que nadie ha probado.
+  compilarla con un toolchain anterior. Hoy es 1.98, por debajo del pin, y la verifica el job
+  `msrv` del CI: compila lib, tests y ejemplos con esa versión exacta.
+  - **Bajarla** para llegar a más consumidores exige mover ese job a la versión nueva. Declarar
+    una MSRV que nada compila es escribir una versión que nadie ha probado.
   - **Subirla** rompe a quien esté por debajo: solo si se usa algo que la exija.
+  - **Subir el pin no la mueve.** `clippy::incompatible_msrv` avisa de una API de std más nueva
+    que la MSRV, también en los tests: o se usa la alternativa antigua, o se sube la MSRV a
+    propósito.
 - El pin (patch) se sube tras pasar el gate. El pin nunca queda por debajo de la MSRV.
 - Tras subirlo, reiniciar rust-analyzer: su servidor de proc-macros sigue siendo el del
   toolchain anterior y da `mismatched ABI`. Es cosmético; no hay que limpiar `target/`.
@@ -99,6 +102,7 @@ CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked
 cargo test --locked                                        # unitarios + tests/ + doctests
 CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked
 cargo deny check
+cargo +1.98.0 check --all-targets --locked                 # job `msrv`: la versión de `rust-version`
 ```
 
 No hay `rustfmt.toml`: defaults de `style_edition 2024`. No crear uno para legalizar desviaciones.

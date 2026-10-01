@@ -4,7 +4,8 @@
 
 use std::{
     error::Error,
-    fs, io,
+    fs::{self, File, FileTimes},
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, mpsc},
     thread,
@@ -46,9 +47,20 @@ fn rejects(watcher: &Watcher) -> mpsc::Receiver<String> {
 }
 
 /// Como guardan los editores: escribir un temporal y renombrarlo encima.
+///
+/// Con el mtime del archivo anterior, que es el peor caso para `poll_file`: `notify` compara el
+/// mtime con resolución de segundos, así que es lo que ve ante un cambio en el mismo segundo, y
+/// solo mirando el contenido se detecta. Sin fijarlo, el test pasaría por suerte cuando el
+/// guardado cae en el segundo siguiente. A los tests con eventos les da igual.
 fn atomic_save(path: &Path, text: &str) -> io::Result<()> {
+    let mtime = fs::metadata(path)?.modified()?;
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, text)?;
+    // `File::set_times` y no `fs::set_times`, que es de 1.99: los tests también compilan en la
+    // MSRV (1.98).
+    let mut file = File::create(&tmp)?;
+    file.write_all(text.as_bytes())?;
+    file.set_times(FileTimes::new().set_modified(mtime))?;
+    drop(file);
     fs::rename(&tmp, path)
 }
 
