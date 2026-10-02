@@ -200,9 +200,11 @@ impl<M> Snapshot<M> {
     ///   aplicó. Puede ser un rechazo, o un evento que nunca llegó (un bind mount de Docker
     ///   Desktop con [`Flags::watch_file`](crate::Flags::watch_file)), y eso último no lo ve
     ///   ningún callback. Tolera la diferencia unos cientos de milisegundos: es lo que tarda en
-    ///   recargar.
+    ///   recargar. No cubre un bind mount de un solo archivo: el contenedor sigue leyendo el
+    ///   inodo viejo, que coincide con `toml()` aunque el host ya tenga otro.
     /// - **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el
-    ///   del archivo desplegado. El algoritmo es de la app: con SHA-256, el mismo valor que
+    ///   del archivo desplegado, calculado fuera del contenedor; esto detecta también el caso
+    ///   anterior. El algoritmo es de la app: con SHA-256, el mismo valor que
     ///   `sha256sum flags.toml`.
     ///
     /// # Examples

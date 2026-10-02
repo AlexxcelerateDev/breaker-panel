@@ -145,10 +145,12 @@ tal cual, y un health check puede usarlo de dos formas:
 - **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se aplicó.
   Cubre también un evento que nunca llegó (Docker Desktop con `watch_file`), que no llega a
   `on_reject` porque no hay nada que rechazar. Tolera unos cientos de milisegundos de diferencia:
-  es lo que tarda en recargar.
+  es lo que tarda en recargar. **No cubre el bind mount de un solo archivo**: el disco que ve el
+  contenedor es el mismo inodo viejo, así que coincide con `toml()` aunque el host ya tenga otro.
 - **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el del
-  archivo desplegado. Con SHA-256 es el mismo valor que `sha256sum flags.toml`; el algoritmo lo
-  pone la app, no esta librería.
+  archivo desplegado, calculado fuera del contenedor. Es la comprobación que detecta también el
+  caso anterior. Con SHA-256 es el mismo valor que `sha256sum flags.toml`; el algoritmo lo pone
+  la app, no esta librería.
 
 ## Observabilidad
 
