@@ -27,12 +27,14 @@
 | `clippy::missing_errors_doc` | `warn` | Todo `pub fn` con `Result` dice en `# Errors` cuándo falla. |
 | `clippy::dbg_macro` / `todo` | `warn` | Restos que no deben llegar a `main`. |
 | `clippy::allow_attributes` / `allow_attributes_without_reason` | `warn` | Imponen la sección siguiente. |
+| `clippy::too_many_lines` | `warn`, fuera de los tests | El límite de líneas de 01. Va en `src/lib.rs` con `cfg_attr(not(test))`, porque `[lints]` no distingue tests. |
 
 - En una librería **no hay excepción de arranque** para `expect`: no hay `main` donde fallar
   rápido sea lo correcto. Si una función panica por contrato (una precondición del llamador), lo
   dice en `# Panics` — y casi siempre es mejor devolver `Result`.
 - `clippy.toml` exime a los tests (`allow-unwrap-in-tests`, `allow-expect-in-tests`).
-- No activar `clippy::pedantic` de golpe: lint por lint, como `missing_errors_doc`.
+- No activar `clippy::pedantic` de golpe: lint por lint, como `missing_errors_doc` y
+  `too_many_lines`.
 
 ### `#[expect]`, no `#[allow]`
 

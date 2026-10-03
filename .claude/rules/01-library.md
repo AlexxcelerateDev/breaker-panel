@@ -61,7 +61,10 @@ una librería le quita al consumidor la forma de configurarla y a los tests la d
 
 ## Reglas de código
 
-- **Máximo 15 líneas por función** (sin llaves ni líneas vacías). Si se supera, extraer helpers.
+- **Máximo 15 líneas por función**, según la cuenta de `clippy::too_many_lines`, que lo
+  comprueba en el código de producción. Si se supera, extraer helpers. Una función que se lee
+  mejor entera lleva `#[expect(clippy::too_many_lines, reason = "...")]`. Los tests quedan
+  fuera: su longitud son datos (ver 02).
 - Nombres: `snake_case` (funciones, módulos, ficheros), `PascalCase` (tipos),
   `SCREAMING_SNAKE_CASE` (constantes).
 - Preferir funciones puras: son las que se prueban sin montar nada (ver 02).

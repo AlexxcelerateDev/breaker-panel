@@ -4,8 +4,9 @@
 
 - **Inline** en `src/` con `#[cfg(test)] mod tests`, junto al código que prueban.
 - **Puros**, sin red ni disco: `cargo test` entero corre en menos de un segundo.
-- Pasan por el mismo gate estricto: `clippy --all-targets` lintea los tests. Solo
-  `unwrap`/`expect` están exentos (`clippy.toml`).
+- Pasan por el mismo gate estricto: `clippy --all-targets` lintea los tests. Solo están exentos
+  `unwrap`/`expect` (`clippy.toml`) y el límite de líneas de 01: en un test, lo que ocupa son
+  datos, y una tabla de casos (abajo) lo pasa enseguida.
 
 ## Diseño para que el código sea testeable
 

@@ -37,8 +37,8 @@ missing_docs = "warn"
 [lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
-# Todo `pub fn` que devuelve `Result` dice en `# Errors` cuándo falla. Es el único de `pedantic`
-# que entra; el resto se evalúa lint por lint, nunca el grupo de golpe.
+# Todo `pub fn` que devuelve `Result` dice en `# Errors` cuándo falla. De `pedantic` entran este
+# y `too_many_lines` (en `src/lib.rs`, solo fuera de los tests): lint por lint, nunca el grupo.
 missing_errors_doc = "warn"
 dbg_macro = "warn"
 todo = "warn"

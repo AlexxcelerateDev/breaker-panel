@@ -54,6 +54,11 @@
 //!
 //! La guía de modelado de keys está en el README.
 
+// Techo de 15 líneas por función (umbral en `clippy.toml`), solo para el código de producción:
+// en un test lo largo son datos, y `[lints]` de `Cargo.toml` no puede distinguir los tests. Ver
+// `.claude/rules/01-library.md`.
+#![cfg_attr(not(test), warn(clippy::too_many_lines))]
+
 mod error;
 mod flags;
 mod key;

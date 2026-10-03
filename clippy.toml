@@ -1,2 +1,4 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+# `clippy::too_many_lines`, activado solo fuera de los tests en `src/lib.rs`.
+too-many-lines-threshold = 15
