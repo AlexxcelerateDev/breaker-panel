@@ -178,25 +178,25 @@ where
     let text = read(path)?;
     let flags = Arc::new(Flags::new(Snapshot::from_toml_str(&text)?));
     let source = Arc::new(Source::new(Arc::clone(&flags), path, text));
-    let rejects = Arc::clone(&source.rejects);
-    let reload: Reload = Arc::new({
-        let source = Arc::clone(&source);
-        move |force| source.reload(force)
-    });
-    let debouncer = debounce::<W>(path, config, Arc::clone(&reload))?;
+    let debouncer = debounce::<W>(path, config, source.reloader())?;
     // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si ya no es
     // válido, el arranque falla, como si la primera lectura lo hubiera encontrado así (§7): aún
     // no hay `on_reject` al que avisar, y aceptarlo dejaría la réplica atrasada sin decirlo.
     source.apply(false).map_err(|rejection| rejection.error)?;
-    let _debouncer = Mutex::new(Box::new(debouncer) as Box<dyn Send>);
-    Ok((
-        flags,
-        Watcher {
-            reload,
-            rejects,
-            _debouncer,
-        },
-    ))
+    Ok((flags, Watcher::new(&source, debouncer)))
+}
+
+impl Watcher {
+    fn new<M>(source: &Arc<Source<M>>, debouncer: impl Send + 'static) -> Self
+    where
+        M: DeserializeOwned + Default + Send + Sync + 'static,
+    {
+        Self {
+            reload: source.reloader(),
+            rejects: Arc::clone(&source.rejects),
+            _debouncer: Mutex::new(Box::new(debouncer)),
+        }
+    }
 }
 
 /// Lo que necesita una recarga: a quién aplicarla, de dónde leer y a quién avisar si falla.
@@ -212,6 +212,15 @@ struct Source<M> {
 enum Seen {
     Text(String),
     Unreadable(io::ErrorKind),
+}
+
+impl Seen {
+    fn of(read: &io::Result<String>) -> Self {
+        match read {
+            Ok(text) => Self::Text(text.clone()),
+            Err(e) => Self::Unreadable(e.kind()),
+        }
+    }
 }
 
 /// Un rechazo, y si es nuevo. Uno repetido (el mismo contenido inválido, el archivo que sigue
@@ -230,6 +239,15 @@ impl<M: DeserializeOwned + Default> Source<M> {
             seen: Mutex::new(Seen::Text(text)),
             rejects: Arc::default(),
         }
+    }
+
+    /// La recarga que guardan el debouncer y el [`Watcher`].
+    fn reloader(self: &Arc<Self>) -> Reload
+    where
+        M: Send + Sync + 'static,
+    {
+        let source = Arc::clone(self);
+        Arc::new(move |force| source.reload(force))
     }
 
     /// `force = false` es un evento del watcher: no aplica nada si el archivo no cambió.
@@ -257,10 +275,7 @@ impl<M: DeserializeOwned + Default> Source<M> {
         // sería el viejo con `seen` diciendo que ya se aplicó el nuevo.
         let mut seen = lock(&self.seen);
         let read = fs::read_to_string(&self.path);
-        let now = match &read {
-            Ok(text) => Seen::Text(text.clone()),
-            Err(e) => Seen::Unreadable(e.kind()),
-        };
+        let now = Seen::of(&read);
         let new = *seen != now;
         if !force && !new {
             return Ok(());
