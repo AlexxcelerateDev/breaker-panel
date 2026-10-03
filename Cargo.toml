@@ -50,7 +50,7 @@ allow_attributes_without_reason = "warn"
 [dev-dependencies]
 # Solo para `examples/axum.rs`: no llegan al consumidor.
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "net"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 
 # Usa `watch_file` y `flag_key!`: con `--no-default-features` no compilaría, así que cargo lo
