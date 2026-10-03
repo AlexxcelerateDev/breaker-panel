@@ -42,6 +42,10 @@ expect_used = "deny"
 missing_errors_doc = "warn"
 dbg_macro = "warn"
 todo = "warn"
+# Exenciones con `#[expect(..., reason = "...")]`, nunca `#[allow]`: ver
+# `.claude/rules/00-rust-toolchain.md`. Los dos son de `restriction`, uno por uno.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
 
 [dev-dependencies]
 # Solo para `examples/axum.rs`: no llegan al consumidor.

@@ -26,6 +26,7 @@
 | `clippy::unwrap_used` / `expect_used` | `deny` | Un panic aquí lo paga el binario de otro. |
 | `clippy::missing_errors_doc` | `warn` | Todo `pub fn` con `Result` dice en `# Errors` cuándo falla. |
 | `clippy::dbg_macro` / `todo` | `warn` | Restos que no deben llegar a `main`. |
+| `clippy::allow_attributes` / `allow_attributes_without_reason` | `warn` | Imponen la sección siguiente. |
 
 - En una librería **no hay excepción de arranque** para `expect`: no hay `main` donde fallar
   rápido sea lo correcto. Si una función panica por contrato (una precondición del llamador), lo
@@ -35,10 +36,11 @@
 
 ### `#[expect]`, no `#[allow]`
 
-Toda exención usa `#[expect(...)]` con comentario del porqué. `#[allow]` calla para siempre y
+Toda exención es `#[expect(lint, reason = "por qué")]`. `#[allow]` calla para siempre y
 sobrevive al código que lo justificaba; `#[expect]` avisa (`unfulfilled_lint_expectations`) en
 cuanto el lint deja de dispararse, y con el gate a `deny` eso rompe el CI. Las exenciones muertas
-se limpian solas en vez de fosilizarse.
+se limpian solas en vez de fosilizarse. El porqué va en `reason`, no en un comentario: rustc lo
+enseña junto al aviso. Lo comprueba clippy (fila anterior), no hace falta acordarse.
 
 ## Warnings
 
@@ -96,14 +98,9 @@ Windows) va en `~/.cargo/config.toml` de esa máquina, nunca aquí.
 
 ## CI (`.github/workflows/ci.yml`)
 
-```bash
-cargo fmt --all --check
-CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked
-cargo test --locked                                        # unitarios + tests/ + doctests
-CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked
-cargo deny check
-cargo +1.98.0 check --all-targets --locked                 # job `msrv`: la versión de `rust-version`
-```
+Corre el gate de `CLAUDE.md` en dos jobs: `ci` con el pin, y `msrv` solo con el `cargo check`
+de la versión de `rust-version`. El gate vive en esos dos sitios y cambia en los dos a la vez:
+una tercera copia aquí ya se quedó sin el paso `--no-default-features`.
 
 No hay `rustfmt.toml`: defaults de `style_edition 2024`. No crear uno para legalizar desviaciones.
 

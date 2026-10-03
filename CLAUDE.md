@@ -17,6 +17,12 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
 último paso es la MSRV (`rust-version`, por debajo del pin):
 `rustup toolchain install 1.98.0 --profile minimal`, también una vez.
 
+- Es la única copia junto a `.github/workflows/ci.yml`: si cambia, cambian las dos en el mismo
+  commit. El agente `gate` lo lee de aquí.
+- `cargo fmt --all` corre solo tras cada `Edit`/`Write` (hook en `.claude/settings.json`).
+- Commits: `tipo: resumen` en español (`feat`, `fix`, `docs`, `refactor`, `chore`), cuerpo en
+  viñetas con el porqué. Un cambio de convención actualiza su regla en el mismo commit.
+
 ## Dónde se aparta del borrador de `docs/REQUIREMENTS.md` §6
 
 - **`Snapshot` guarda un `BTreeMap`**, no un `HashMap`: con `HashMap`, `children()` saldría en
