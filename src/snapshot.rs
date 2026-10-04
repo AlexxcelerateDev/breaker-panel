@@ -200,10 +200,9 @@ impl<M> Snapshot<M> {
     ///   aplicó. Puede ser un rechazo, o un evento que nunca llegó (un bind mount de Docker
     ///   Desktop para Windows, un directorio renombrado en Windows, o un symlink reapuntado hasta
     ///   que cambie el directorio de antes, con `Flags::watch_file`), y eso último no lo ve
-    ///   ningún callback. Tolera la diferencia unos cientos de
-    ///   milisegundos: es lo que tarda en recargar. No cubre un bind mount de un solo archivo en
-    ///   un host Linux: el contenedor sigue leyendo el inodo viejo, que coincide con `toml()`
-    ///   aunque el host ya tenga otro.
+    ///   ningún callback. Tolera la diferencia unos cientos de milisegundos: es lo que tarda en
+    ///   recargar. No cubre un bind mount de un solo archivo en un host Linux: el contenedor sigue
+    ///   leyendo el inodo viejo, que coincide con `toml()` aunque el host ya tenga otro.
     /// - **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el
     ///   del archivo desplegado, calculado fuera del contenedor; esto detecta también el caso
     ///   anterior. El algoritmo es de la app: con SHA-256, el mismo valor que
