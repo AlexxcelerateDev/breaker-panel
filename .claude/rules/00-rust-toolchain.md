@@ -107,6 +107,11 @@ una tercera copia aquí ya se quedó sin el paso `--no-default-features`.
 Un tercer job, `macos`, corre clippy y los tests en macOS: FSEvents vigila por ruta y no por
 inodo, y los tests de lo que cambia por eso (`cfg(target_os = "macos")`) no compilan en Linux, ni
 para lintearlos. Solo esos dos pasos: en un repo privado, un minuto de macOS cuenta por diez.
+Pero corre también con el cron semanal, a propósito: prueba contra la imagen vigente de
+`macos-latest`, y si un macOS nuevo cambia FSEvents se ve ese lunes y no mezclado con un PR. Las
+versiones sí difieren: un test de #6 pasaba en macOS 27 y fallaba en el runner con macOS 26.
+Saltarlo con `if: github.event_name != 'schedule'` se probó y se revirtió (`aa8802a`): ahorraba
+unos 43 minutos al mes.
 
 No hay `rustfmt.toml`: defaults de `style_edition 2024`. No crear uno para legalizar desviaciones.
 
