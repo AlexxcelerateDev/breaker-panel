@@ -97,7 +97,7 @@ fn guardado_atomico_dispara_el_reload() -> TestResult {
 #[test]
 fn guardado_atomico_dispara_el_reload_con_polling() -> TestResult {
     let path = flags_file("guardado_atomico_polling")?;
-    let interval = Duration::from_millis(50);
+    let interval = Duration::from_millis(100);
     atomic_save_reloads(&path, Flags::poll_file(&path, interval)?)
 }
 
@@ -239,5 +239,47 @@ fn arrancar_sin_archivo_falla() -> TestResult {
     let path = flags_file("sin_archivo")?.with_file_name("no_existe.toml");
     let r = Flags::<()>::watch_file(&path);
     assert_matches!(r, Err(LoadError::Io { .. }));
+    Ok(())
+}
+
+#[test]
+fn recrear_el_directorio_llega_a_on_reject() -> TestResult {
+    let path = flags_file("recrear_directorio")?;
+    let dir = path.parent().ok_or("sin directorio")?.to_owned();
+    let (_flags, watcher) = Flags::<()>::watch_file(&path)?;
+    let rejected = rejects(&watcher);
+
+    // Como un despliegue: borrar y copiar enseguida. La recarga que dispara el borrado ya lee el
+    // archivo nuevo, así que no queda ningún rechazo de lectura: lo único que avisa de que la
+    // vigilancia murió es este `LoadError::Watch`.
+    fs::remove_dir_all(&dir)?;
+    fs::create_dir_all(&dir)?;
+    fs::write(&path, OFF)?;
+
+    let mut avisos: Vec<String> = Vec::new();
+    while !avisos.iter().any(|e| e.starts_with("no se pudo vigilar")) {
+        avisos.push(next(&rejected)?);
+    }
+    Ok(())
+}
+
+#[test]
+fn recrear_el_directorio_con_sondeo_no_avisa_y_se_recupera() -> TestResult {
+    let path = flags_file("recrear_directorio_sondeo")?;
+    let dir = path.parent().ok_or("sin directorio")?.to_owned();
+    let (flags, watcher) = Flags::<()>::poll_file(&path, Duration::from_millis(100))?;
+    let (rejected, rx) = (rejects(&watcher), diffs(&flags));
+
+    fs::remove_dir_all(&dir)?;
+    fs::create_dir_all(&dir)?;
+    fs::write(&path, OFF)?;
+
+    // El sondeo vuelve a encontrar el directorio: aplica el archivo nuevo y no hay nada que avisar.
+    assert_eq!(next(&rx)?.changed, ["payments"]);
+    assert!(
+        rejected
+            .try_iter()
+            .all(|e| !e.starts_with("no se pudo vigilar"))
+    );
     Ok(())
 }

@@ -1,12 +1,17 @@
 use std::{
     fmt, fs, io,
     path::{self, Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
 use notify_debouncer_full::{
-    DebounceEventResult, Debouncer, RecommendedCache, new_debouncer_opt,
+    DebounceEventHandler, DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache,
+    file_id::{self, FileId},
+    new_debouncer_opt,
     notify::{self, PollWatcher, RecommendedWatcher, RecursiveMode},
 };
 use serde::de::DeserializeOwned;
@@ -42,6 +47,8 @@ pub struct Watcher {
 
 impl Watcher {
     /// Relee el archivo y lo aplica aunque no haya cambiado: para un SIGHUP o un endpoint admin.
+    /// Cada llamada es una revisión nueva y un `on_change` con las listas vacías: un endpoint que
+    /// la exponga no debería poder llamarse en bucle.
     ///
     /// # Errors
     ///
@@ -115,8 +122,11 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     ///
     /// El directorio tiene que ser siempre el mismo. Si un despliegue lo borra y lo crea de
     /// nuevo (`rm -rf` y copiar, un `rsync --delete` del padre), el sistema sigue vigilando el
-    /// que ya no existe: llega un rechazo al borrarlo y después nada más. Para ese despliegue
-    /// está [`poll_file`](Self::poll_file), que vuelve a encontrarlo.
+    /// que ya no existe y deja de ver cambios. Con la recreación inmediata de un despliegue ni
+    /// siquiera hay rechazo: se aplica el archivo nuevo y lo que se pierde es la edición
+    /// siguiente. Por eso, en cuanto pasa, llega a [`Watcher::on_reject`] un
+    /// [`LoadError::Watch`]. Para ese despliegue está [`poll_file`](Self::poll_file), que
+    /// vuelve a encontrarlo.
     ///
     /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
     /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime
@@ -143,7 +153,7 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn watch_file(path: impl AsRef<Path>) -> Result<(Arc<Self>, Watcher), LoadError> {
-        start::<M, RecommendedWatcher>(path.as_ref(), notify::Config::default())
+        start::<M, RecommendedWatcher>(path.as_ref(), notify::Config::default(), true)
     }
 
     /// Como [`watch_file`](Self::watch_file), pero mirando el archivo cada `interval` en vez de
@@ -172,14 +182,24 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
         path: impl AsRef<Path>,
         interval: Duration,
     ) -> Result<(Arc<Self>, Watcher), LoadError> {
+        if interval < MIN_POLL {
+            // Que se note: quien pidió 1 ms cree que sondea cada milisegundo.
+            tracing::warn!(?interval, min = ?MIN_POLL, "intervalo de sondeo subido al mínimo");
+        }
         let config = notify::Config::default()
             .with_poll_interval(interval.max(MIN_POLL))
             .with_compare_contents(true);
-        start::<M, PollWatcher>(path.as_ref(), config)
+        start::<M, PollWatcher>(path.as_ref(), config, false)
     }
 }
 
-fn start<M, W>(path: &Path, config: notify::Config) -> Result<(Arc<Flags<M>>, Watcher), LoadError>
+/// `events` es `false` con `poll_file`: el sondeo vuelve a encontrar un directorio recreado, y
+/// no hace falta vigilar que siga siendo el mismo (ver [`Source::check_dir`]).
+fn start<M, W>(
+    path: &Path,
+    config: notify::Config,
+    events: bool,
+) -> Result<(Arc<Flags<M>>, Watcher), LoadError>
 where
     M: DeserializeOwned + Default + Send + Sync + 'static,
     W: notify::Watcher + Send + 'static,
@@ -192,8 +212,8 @@ where
     })?;
     let text = read(path)?;
     let flags = Arc::new(Flags::new(Snapshot::from_toml_str(&text)?));
-    let source = Arc::new(Source::new(Arc::clone(&flags), path, text));
-    let debouncer = debounce::<W>(path, config, source.reloader())?;
+    let source = Arc::new(Source::new(Arc::clone(&flags), path, text, events));
+    let debouncer = debounce::<W>(path, config, source.event_handler())?;
     // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si ya no es
     // válido, el arranque falla, como si la primera lectura lo hubiera encontrado así (§7): aún
     // no hay `on_reject` al que avisar, y aceptarlo dejaría la réplica atrasada sin decirlo.
@@ -220,7 +240,16 @@ struct Source<M> {
     path: PathBuf,
     seen: Mutex<Seen>,
     rejects: Arc<Listeners<LoadError>>,
+    /// El directorio que había al arrancar, si se vigila con eventos: el sistema sigue
+    /// vigilando ese aunque lo borren y lo creen de nuevo.
+    dir_id: Option<FileId>,
+    /// Si ya se avisó de que dejó de ser el mismo: se avisa una vez.
+    dir_lost: AtomicBool,
 }
+
+/// Lo que se manda a `on_reject` cuando el directorio vigilado deja de ser el del arranque.
+const DIR_LOST: &str = "el directorio se borró o se recreó: la recarga con eventos ya no ve \
+                        cambios; usa poll_file o reinicia";
 
 /// Lo último que se leyó del archivo, se aplicara o no.
 #[derive(PartialEq)]
@@ -247,16 +276,77 @@ struct Rejection {
 }
 
 impl<M: DeserializeOwned + Default> Source<M> {
-    fn new(flags: Arc<Flags<M>>, path: &Path, text: String) -> Self {
+    fn new(flags: Arc<Flags<M>>, path: &Path, text: String, events: bool) -> Self {
+        let dir_id = events.then(|| file_id::get_file_id(dir(path)).ok());
         Self {
             flags,
             path: path.to_owned(),
             seen: Mutex::new(Seen::Text(text)),
             rejects: Arc::default(),
+            dir_id: dir_id.flatten(),
+            dir_lost: AtomicBool::new(false),
         }
     }
 
-    /// La recarga que guardan el debouncer y el [`Watcher`].
+    /// Lo que hace el debouncer con cada lote de eventos.
+    fn event_handler(self: &Arc<Self>) -> impl FnMut(DebounceEventResult) + Send + 'static
+    where
+        M: Send + Sync + 'static,
+    {
+        let source = Arc::clone(self);
+        move |result| source.on_events(result)
+    }
+
+    fn on_events(&self, result: DebounceEventResult) {
+        match result {
+            Ok(events) => {
+                // Los accesos se ignoran: en Linux leer el archivo ya genera uno, y recargar por
+                // ellos sería un bucle. El error ya lo registra el propio `reload`.
+                if events.iter().any(|e| !e.kind.is_access()) {
+                    let _ = self.reload(false);
+                }
+                self.check_dir(&events);
+            }
+            Err(errors) => {
+                tracing::warn!(?errors, "error vigilando el archivo de flags");
+                self.check_dir(&[]);
+            }
+        }
+    }
+
+    /// Con eventos, el sistema vigila el directorio del arranque: si lo borran y lo crean de
+    /// nuevo deja de avisar, y en silencio. Con la recreación inmediata de un despliegue ni
+    /// siquiera queda un rechazo, porque la última recarga que dispara el directorio viejo ya
+    /// lee el archivo nuevo. Por eso se mira tras cada lote de eventos, y se avisa una vez.
+    ///
+    /// Hacen falta las dos señales: Linux reutiliza para el directorio nuevo el inodo del
+    /// borrado (el identificador no cambia), pero manda el borrado del propio directorio;
+    /// Windows no lo manda, pero el identificador sí cambia.
+    fn check_dir(&self, events: &[DebouncedEvent]) {
+        let Some(was) = self.dir_id else { return };
+        let dir = dir(&self.path);
+        let removed = events
+            .iter()
+            .any(|e| e.kind.is_remove() && e.paths.iter().any(|p| p == dir));
+        let same = !removed && file_id::get_file_id(dir).is_ok_and(|now| now == was);
+        if !same && !self.dir_lost.swap(true, Ordering::Relaxed) {
+            self.report_lost(dir);
+        }
+    }
+
+    fn report_lost(&self, dir: &Path) {
+        let error = LoadError::Watch {
+            path: dir.to_owned(),
+            source: io::Error::other(DIR_LOST),
+        };
+        tracing::warn!(
+            error = format!("{error:#}"),
+            "la recarga en caliente se ha parado"
+        );
+        call_all(&self.rejects, &error, "on_reject");
+    }
+
+    /// La recarga forzada del [`Watcher`].
     fn reloader(self: &Arc<Self>) -> Reload
     where
         M: Send + Sync + 'static,
@@ -308,18 +398,16 @@ impl<M: DeserializeOwned + Default> Source<M> {
 fn debounce<W>(
     path: &Path,
     config: notify::Config,
-    reload: Reload,
+    on_events: impl DebounceEventHandler,
 ) -> Result<Debouncer<W, RecommendedCache>, LoadError>
 where
     W: notify::Watcher,
 {
-    // La ruta ya es absoluta (`start`): solo la raíz no tiene padre, y no se puede leer.
-    let dir = path.parent().unwrap_or(path);
+    let dir = dir(path);
     let watch_error = |e| LoadError::Watch {
         path: dir.to_owned(),
         source: io::Error::other(e),
     };
-    let on_events = move |result: DebounceEventResult| on_events(result, &reload);
     let mut debouncer =
         new_debouncer_opt::<_, W, _>(DEBOUNCE, None, on_events, RecommendedCache::new(), config)
             .map_err(watch_error)?;
@@ -329,22 +417,15 @@ where
     Ok(debouncer)
 }
 
-fn on_events(result: DebounceEventResult, reload: &Reload) {
-    match result {
-        // Los accesos se ignoran: en Linux leer el archivo ya genera uno, y recargar por ellos
-        // sería un bucle.
-        Ok(events) if events.iter().any(|e| !e.kind.is_access()) => {
-            // El error ya lo registró el propio `reload`.
-            let _ = reload(false);
-        }
-        Ok(_) => {}
-        Err(errors) => tracing::warn!(?errors, "error vigilando el archivo de flags"),
-    }
-}
-
 fn read(path: &Path) -> Result<String, LoadError> {
     fs::read_to_string(path).map_err(|source| LoadError::Io {
         path: path.to_owned(),
         source,
     })
+}
+
+/// El directorio que se vigila. La ruta ya es absoluta (`start`): solo la raíz no tiene padre,
+/// y no se puede leer.
+fn dir(path: &Path) -> &Path {
+    path.parent().unwrap_or(path)
 }
