@@ -130,6 +130,11 @@ que cabe en el estado de axum.
 - **Guárdalo de forma atómica** (temporal + rename, como los editores y los `ConfigMap`): una
   escritura en el sitio se puede leer a medias. En caliente eso es un rechazo que llega a
   `on_reject` y se corrige solo al terminar la escritura; al arrancar, un `watch_file` que falla.
+  En Windows, el rename de `File.Move` (.NET), `os.replace` (Python) y `move` (cmd) falla con
+  acceso denegado si en ese instante otro proceso tiene el archivo abierto, aunque sea para
+  leerlo: la propia recarga, o `poll_file` en cada vuelta. Reintenta, o usa un rename con
+  semántica POSIX (`std::fs::rename` de Rust). `Move-Item -Force` no falla, pero no es atómico:
+  borra y luego mueve.
 - **El archivo, solo en su directorio**: cualquier cambio a su lado lo relee, y `poll_file`
   hashea todo lo que hay en él en cada vuelta.
 - **Docker: monta el directorio, no el archivo.** Con un bind mount de un solo archivo, en
