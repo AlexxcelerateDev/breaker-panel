@@ -10,7 +10,7 @@ archivo solo cubre lo que no se deduce leyendo el código.
 ## Gate completo, lo mismo que corre el CI
 
 ```bash
-cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked --no-default-features && cargo test --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked && cargo deny check && cargo +1.98.0 check --all-targets --locked
+cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked --no-default-features && cargo test --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked --no-default-features && cargo deny check && cargo +1.98.0 check --all-targets --locked
 ```
 
 `cargo deny` no viene con rustup: `cargo install cargo-deny --locked` una vez por máquina. El

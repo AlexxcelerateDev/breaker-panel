@@ -70,6 +70,13 @@ jobs:
         env:
           CARGO_BUILD_WARNINGS: deny
 
+      # Como el lint sin features: un enlace a algo que traen `watch` o `registry` se rompe con
+      # ellas apagadas, y el paso anterior no lo vería.
+      - name: Documentación sin features por defecto
+        run: cargo doc --no-deps --locked --no-default-features
+        env:
+          CARGO_BUILD_WARNINGS: deny
+
       # Binario precompilado: instalarlo desde fuente costaría más que todo el resto del job.
       - name: Instalar cargo-deny
         uses: taiki-e/install-action@v2

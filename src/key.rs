@@ -30,7 +30,7 @@ pub fn segment(s: &str) -> Result<&str, FlagError> {
 
 /// `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, sin arrastrar una dependencia de regex.
 ///
-/// `const` para que [`flag_key!`](crate::flag_key) rechace una key mal formada al compilar: si
+/// `const` para que `flag_key!` rechace una key mal formada al compilar: si
 /// no, fallaría al arrancar diciendo que falta en el archivo, donde nunca podría estar.
 #[doc(hidden)]
 pub const fn is_key(key: &str) -> bool {

@@ -56,6 +56,15 @@
 //!
 //! La guía de modelado de keys está en el README.
 
+// Sin la feature, lo que trae no existe y su enlace de arriba estaría roto: apunta a `# Features`.
+#![cfg_attr(
+    not(feature = "watch"),
+    doc = "",
+    doc = "[`Flags::watch_file`]: #features",
+    doc = "[`Flags::poll_file`]: #features",
+    doc = "[`Watcher::on_reject`]: #features"
+)]
+#![cfg_attr(not(feature = "registry"), doc = "", doc = "[`flag_key!`]: #features")]
 // Techo de 15 líneas por función (umbral en `clippy.toml`), solo para el código de producción:
 // en un test lo largo son datos, y `[lints]` de `Cargo.toml` no puede distinguir los tests. Ver
 // `.claude/rules/01-library.md`.
