@@ -97,7 +97,7 @@ fn guardado_atomico_dispara_el_reload() -> TestResult {
 #[test]
 fn guardado_atomico_dispara_el_reload_con_polling() -> TestResult {
     let path = flags_file("guardado_atomico_polling")?;
-    let interval = Duration::from_millis(50);
+    let interval = Duration::from_millis(100);
     atomic_save_reloads(&path, Flags::poll_file(&path, interval)?)
 }
 

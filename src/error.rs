@@ -70,14 +70,14 @@ impl Error for FlagError {}
 pub enum LoadError {
     /// No se pudo leer el archivo.
     Io {
-        /// El archivo.
+        /// El archivo, con la ruta absoluta (la original si no se pudo resolver).
         path: PathBuf,
         /// La causa.
         source: io::Error,
     },
     /// No se pudo vigilar el directorio del archivo.
     Watch {
-        /// El directorio vigilado.
+        /// El directorio vigilado, con la ruta absoluta.
         path: PathBuf,
         /// La causa.
         source: io::Error,

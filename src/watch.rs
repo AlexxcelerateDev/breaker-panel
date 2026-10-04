@@ -47,6 +47,8 @@ pub struct Watcher {
 
 impl Watcher {
     /// Relee el archivo y lo aplica aunque no haya cambiado: para un SIGHUP o un endpoint admin.
+    /// Cada llamada es una revisión nueva y un `on_change` con las listas vacías: un endpoint que
+    /// la exponga no debería poder llamarse en bucle.
     ///
     /// # Errors
     ///
@@ -180,6 +182,10 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
         path: impl AsRef<Path>,
         interval: Duration,
     ) -> Result<(Arc<Self>, Watcher), LoadError> {
+        if interval < MIN_POLL {
+            // Que se note: quien configuró `FLAGS_POLL_MS=1` cree que sondea cada milisegundo.
+            tracing::warn!(?interval, minimo = ?MIN_POLL, "intervalo de sondeo subido al mínimo");
+        }
         let config = notify::Config::default()
             .with_poll_interval(interval.max(MIN_POLL))
             .with_compare_contents(true);
