@@ -291,6 +291,35 @@ fn en_macos_recrear_el_directorio_no_corta_la_recarga() -> TestResult {
     Ok(())
 }
 
+/// El directorio es el que resolvía la ruta al arrancar, también con FSEvents: al reapuntar un
+/// symlink por encima, la recarga sigue en el de antes, y su siguiente evento lo avisa.
+#[cfg(unix)]
+#[test]
+fn reapuntar_un_symlink_por_encima_llega_a_on_reject() -> TestResult {
+    use std::os::unix::fs::symlink;
+
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("symlink_reapuntado");
+    let _ = fs::remove_dir_all(&root);
+    for release in ["v1", "v2"] {
+        fs::create_dir_all(root.join(release))?;
+        fs::write(root.join(release).join("flags.toml"), ON)?;
+    }
+    symlink("v1", root.join("current"))?;
+    let (_flags, watcher) = Flags::<()>::watch_file(root.join("current/flags.toml"))?;
+    let rejected = rejects(&watcher);
+
+    // Como un despliegue tipo Capistrano: reapuntar `current` y limpiar la release vieja.
+    symlink("v2", root.join("current.tmp"))?;
+    fs::rename(root.join("current.tmp"), root.join("current"))?;
+    fs::remove_dir_all(root.join("v1"))?;
+
+    let mut avisos: Vec<String> = Vec::new();
+    while !avisos.iter().any(|e| e.starts_with("no se pudo vigilar")) {
+        avisos.push(next(&rejected)?);
+    }
+    Ok(())
+}
+
 #[test]
 fn recrear_el_directorio_con_sondeo_no_avisa_y_se_recupera() -> TestResult {
     let path = flags_file("recrear_directorio_sondeo")?;

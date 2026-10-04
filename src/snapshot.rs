@@ -198,8 +198,9 @@ impl<M> Snapshot<M> {
     ///
     /// - **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se
     ///   aplicó. Puede ser un rechazo, o un evento que nunca llegó (un bind mount de Docker
-    ///   Desktop para Windows, o un directorio renombrado en Windows, con `Flags::watch_file`),
-    ///   y eso último no lo ve ningún callback. Tolera la diferencia unos cientos de
+    ///   Desktop para Windows, un directorio renombrado en Windows, o un symlink reapuntado hasta
+    ///   que cambie el directorio de antes, con `Flags::watch_file`), y eso último no lo ve
+    ///   ningún callback. Tolera la diferencia unos cientos de
     ///   milisegundos: es lo que tarda en recargar. No cubre un bind mount de un solo archivo en
     ///   un host Linux: el contenedor sigue leyendo el inodo viejo, que coincide con `toml()`
     ///   aunque el host ya tenga otro.
