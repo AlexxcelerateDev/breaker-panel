@@ -106,8 +106,7 @@ una tercera copia aquí ya se quedó sin el paso `--no-default-features`.
 
 Un tercer job, `macos`, corre clippy y los tests en macOS: FSEvents vigila por ruta y no por
 inodo, y los tests de lo que cambia por eso (`cfg(target_os = "macos")`) no compilan en Linux, ni
-para lintearlos. Solo esos dos pasos: en un repo privado, un minuto de macOS cuenta por diez. Por
-lo mismo, no corre con el cron semanal: está para los advisories, y el código no ha cambiado.
+para lintearlos. Solo esos dos pasos: en un repo privado, un minuto de macOS cuenta por diez.
 
 No hay `rustfmt.toml`: defaults de `style_edition 2024`. No crear uno para legalizar desviaciones.
 
