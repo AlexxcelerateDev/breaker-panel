@@ -137,9 +137,11 @@ que cabe en el estado de axum.
   para siempre, aunque sondee. En Docker Desktop (Mac, Windows) los eventos no cruzan el montaje:
   ahí, `Flags::poll_file`.
 - **No reemplaces el directorio.** Si un despliegue lo borra y lo crea de nuevo (`rm -rf` y
-  copiar, un `rsync --delete` del padre), `watch_file` sigue vigilando el que ya no existe: llega
-  un rechazo al borrarlo y después nada más. Ahí, `poll_file`, que vuelve a encontrarlo. Un
-  `ConfigMap` no tiene el problema: cambia un symlink dentro de un directorio que sigue vivo.
+  copiar, un `rsync --delete` del padre), `watch_file` sigue vigilando el que ya no existe y deja
+  de ver cambios. Con la recreación inmediata de un despliegue ni siquiera hay rechazo: se aplica
+  el archivo nuevo y lo que se pierde es la edición siguiente. Por eso, en cuanto pasa, llega a
+  `on_reject` un `LoadError::Watch`. Ahí, `poll_file`, que vuelve a encontrarlo. Un `ConfigMap`
+  no tiene el problema: cambia un symlink dentro de un directorio que sigue vivo.
 
 Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
 informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por
@@ -170,6 +172,7 @@ La librería emite estos eventos de `tracing`:
 |---|---|---|
 | Recarga aplicada, con su revisión | `breaker_panel::flags` | `info` |
 | Recarga rechazada, con la cadena de causas (línea y columna si el TOML no parsea) | `breaker_panel::watch` | `warn` |
+| La vigilancia con eventos se paró: el directorio se borró o se recreó (también llega a `on_reject`) | `breaker_panel::watch` | `warn` |
 | Un callback de `on_change` u `on_reject` entró en pánico | `breaker_panel::flags` | `error` |
 | `require` denegado: **uno por llamada**, así que bajo carga con un switch apagado es una línea por petición | `breaker_panel::snapshot` | `debug` |
 

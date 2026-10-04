@@ -43,6 +43,7 @@
 //! |---|---|---|
 //! | Recarga aplicada, con su revisión | `breaker_panel::flags` | `info` |
 //! | Recarga rechazada, con la cadena de causas (línea y columna si el TOML no parsea) | `breaker_panel::watch` | `warn` |
+//! | La vigilancia con eventos se paró: el directorio se borró o se recreó (también llega a `on_reject`) | `breaker_panel::watch` | `warn` |
 //! | Un callback de `on_change` u `on_reject` entró en pánico | `breaker_panel::flags` | `error` |
 //! | `require` denegado: **uno por llamada**, así que bajo carga con un switch apagado es una línea por petición | `breaker_panel::snapshot` | `debug` |
 //!
