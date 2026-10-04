@@ -183,8 +183,8 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
         interval: Duration,
     ) -> Result<(Arc<Self>, Watcher), LoadError> {
         if interval < MIN_POLL {
-            // Que se note: quien configuró `FLAGS_POLL_MS=1` cree que sondea cada milisegundo.
-            tracing::warn!(?interval, minimo = ?MIN_POLL, "intervalo de sondeo subido al mínimo");
+            // Que se note: quien pidió 1 ms cree que sondea cada milisegundo.
+            tracing::warn!(?interval, min = ?MIN_POLL, "intervalo de sondeo subido al mínimo");
         }
         let config = notify::Config::default()
             .with_poll_interval(interval.max(MIN_POLL))
@@ -325,10 +325,10 @@ impl<M: DeserializeOwned + Default> Source<M> {
     fn check_dir(&self, events: &[DebouncedEvent]) {
         let Some(was) = self.dir_id else { return };
         let dir = dir(&self.path);
-        let borrado = events
+        let removed = events
             .iter()
             .any(|e| e.kind.is_remove() && e.paths.iter().any(|p| p == dir));
-        let same = !borrado && file_id::get_file_id(dir).is_ok_and(|now| now == was);
+        let same = !removed && file_id::get_file_id(dir).is_ok_and(|now| now == was);
         if !same && !self.dir_lost.swap(true, Ordering::Relaxed) {
             self.report_lost(dir);
         }

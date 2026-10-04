@@ -75,7 +75,8 @@ pub enum LoadError {
         /// La causa.
         source: io::Error,
     },
-    /// No se pudo vigilar el directorio del archivo.
+    /// No se pudo vigilar el directorio del archivo: al arrancar, o después (por
+    /// `Watcher::on_reject`) si se borró o se recreó.
     Watch {
         /// El directorio vigilado, con la ruta absoluta.
         path: PathBuf,

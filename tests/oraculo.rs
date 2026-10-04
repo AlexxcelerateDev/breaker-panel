@@ -6,7 +6,7 @@
 //! prefijo de texto sin serlo de jerarquía (`a`, `ab`, `a_b`), que es donde se equivocaría una
 //! cascada hecha con `starts_with`.
 //!
-//! 300 casos tardan ~0,15 s en debug. Con 100, un oráculo que elige el apagado más bajo en vez
+//! 300 casos tardan ~0,12 s en debug. Con 100, un oráculo que elige el apagado más bajo en vez
 //! del más alto ya da 159 discrepancias: la prueba es sensible con muy pocos casos.
 
 use std::{
@@ -212,11 +212,8 @@ fn la_cascada_children_y_diff_cuadran_con_el_oraculo() {
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut fallos = Vec::new();
     for caso in 0..CASOS {
-        let (a, b) = {
-            let a = archivo(&mut rng);
-            let b = mutar(&mut rng, &a);
-            (a, b)
-        };
+        let a = archivo(&mut rng);
+        let b = mutar(&mut rng, &a);
         let texto = toml(&a);
         let flags: Flags = Flags::from_toml_str(&texto).unwrap();
         assert_eq!(flags.snapshot().toml(), texto, "caso {caso}: toml()");
