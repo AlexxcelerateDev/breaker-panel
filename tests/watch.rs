@@ -308,10 +308,13 @@ fn reapuntar_un_symlink_por_encima_llega_a_on_reject() -> TestResult {
     let (_flags, watcher) = Flags::<()>::watch_file(root.join("current/flags.toml"))?;
     let rejected = rejects(&watcher);
 
-    // Como un despliegue tipo Capistrano: reapuntar `current` y limpiar la release vieja.
+    // Como un despliegue tipo Capistrano: reapuntar `current`, y luego cualquier cambio en la
+    // release vieja. Tocarla y no borrarla: FSEvents entrega como eventos de después de `watch()`
+    // la creación de v1 de hace un instante, y el debouncer anula una creación y un borrado del
+    // mismo directorio en el mismo lote. En el runner de CI no quedaba ningún evento que mirar.
     symlink("v2", root.join("current.tmp"))?;
     fs::rename(root.join("current.tmp"), root.join("current"))?;
-    fs::remove_dir_all(root.join("v1"))?;
+    fs::write(root.join("v1/flags.toml"), OFF)?;
 
     let mut avisos: Vec<String> = Vec::new();
     while !avisos.iter().any(|e| e.starts_with("no se pudo vigilar")) {
