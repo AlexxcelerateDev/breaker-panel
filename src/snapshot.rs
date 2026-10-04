@@ -198,7 +198,7 @@ impl<M> Snapshot<M> {
     ///
     /// - **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se
     ///   aplicó. Puede ser un rechazo, o un evento que nunca llegó (un bind mount de Docker
-    ///   Desktop o un directorio recreado con [`Flags::watch_file`](crate::Flags::watch_file)),
+    ///   Desktop o un directorio recreado con `Flags::watch_file`),
     ///   y eso último no lo ve ningún callback. Tolera la diferencia unos cientos de
     ///   milisegundos: es lo que tarda en recargar. No cubre un bind mount de un solo archivo: el
     ///   contenedor sigue leyendo el inodo viejo, que coincide con `toml()` aunque el host ya

@@ -95,7 +95,7 @@ pub enum LoadError {
         /// La key de la entrada.
         key: String,
     },
-    /// Una key declarada con [`flag_key!`](crate::flag_key) no está en el archivo. Si faltan
+    /// Una key declarada con `flag_key!` no está en el archivo. Si faltan
     /// varias, la primera en orden alfabético: sale la misma en cada build.
     MissingKey {
         /// La key registrada.
