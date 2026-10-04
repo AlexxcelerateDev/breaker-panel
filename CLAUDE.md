@@ -75,5 +75,7 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
   `target_os`: la feature `macos_kqueue` de `notify` lo cambia por kqueue). Además entrega
   eventos de justo antes de `watch()`, también el borrado del propio directorio, y borrar el
   padre no genera ninguno hasta que se recrea. Los tests de eso solo compilan en el job `macos`.
+  La ruta es la resuelta al arrancar (`fsevent-sys` pasa por `CFURLCreateFileReferenceURL`): un
+  symlink reapuntado por encima del directorio la deja en el de antes, y con FSEvents no hay aviso.
 - `publish = false` hasta la fase 1 del roadmap. Para publicar: quitarlo, añadir `description`,
   `license` y `repository`, y esa licencia al `allow` de `deny.toml`.

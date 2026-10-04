@@ -147,7 +147,8 @@ que cabe en el estado de axum.
   llega ningún aviso. Ahí, `poll_file`, que vuelve a encontrarlo. Un `ConfigMap` no tiene el
   problema: cambia un symlink dentro de un directorio que sigue vivo. En macOS tampoco: FSEvents
   vigila la ruta, encuentra el directorio nuevo y la recarga sigue, sin aviso porque no hay nada
-  que avisar.
+  que avisar. Pero la ruta resuelta al arrancar: si un symlink por encima del directorio se
+  reapunta (`current -> releases/v2`), sigue en el de antes, y sin aviso. Ahí también, `poll_file`.
 
 Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
 informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por

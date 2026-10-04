@@ -135,6 +135,8 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// en su lugar): el sistema sigue al renombrado sin decir nada, y no llega ningún aviso.
     /// Para esos despliegues está [`poll_file`](Self::poll_file), que vuelve a encontrarlo. En
     /// macOS no pasa: FSEvents vigila la ruta, encuentra el directorio nuevo y la recarga sigue.
+    /// Pero la ruta resuelta al arrancar: si un symlink por encima del directorio se reapunta
+    /// (`current -> releases/v2`), sigue en el de antes, y sin aviso. Ahí también, `poll_file`.
     ///
     /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
     /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime
