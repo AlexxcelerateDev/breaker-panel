@@ -152,8 +152,12 @@ que cabe en el estado de axum.
   llega ningún aviso. Ahí, `poll_file`, que vuelve a encontrarlo. Un `ConfigMap` no tiene el
   problema: cambia un symlink dentro de un directorio que sigue vivo. En macOS tampoco: FSEvents
   vigila la ruta, encuentra el directorio nuevo y la recarga sigue, sin aviso porque no hay nada
-  que avisar. Pero la ruta resuelta al arrancar: si un symlink por encima del directorio se
-  reapunta (`current -> releases/v2`), sigue en el de antes, y sin aviso. Ahí también, `poll_file`.
+  que avisar.
+- **Un symlink reapuntado por encima del directorio** (`current -> releases/v2`) deja la
+  recarga en el de antes, en todas las plataformas: lo que se vigila es lo que resolvía la ruta
+  al arrancar. El `LoadError::Watch` llega con el siguiente evento de ese directorio, al tocar
+  algo en él o al borrarlo; en macOS, borrar la release entera con la config en un subdirectorio
+  no genera ninguno. Para esos despliegues, `poll_file`.
 
 Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
 informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por
@@ -162,7 +166,8 @@ tal cual, y un health check puede usarlo de dos formas:
 
 - **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se aplicó.
   Cubre también un evento que nunca llegó (Docker Desktop para Windows con `watch_file`, un
-  directorio renombrado en Windows), que no llega a `on_reject` porque no hay nada que rechazar.
+  directorio renombrado en Windows, un symlink reapuntado hasta que cambie el directorio de
+  antes), que no llega a `on_reject` porque no hay nada que rechazar.
   Tolera unos cientos de milisegundos de diferencia: es lo que tarda en recargar. **No cubre el
   bind mount de un solo archivo en un host Linux**: el disco que ve el contenedor es el mismo
   inodo viejo, así que coincide con `toml()` aunque el host ya tenga otro.

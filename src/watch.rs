@@ -82,10 +82,11 @@ impl Watcher {
     /// leerse, no vuelve a avisar hasta que cambie. Por eso un callback que llame a `reload` no
     /// entra en bucle.
     ///
-    /// Con [`Flags::watch_file`] llega también, una vez, un [`LoadError::Watch`] si el
-    /// directorio vigilado se borra o se recrea (en Linux y Windows: en macOS la recarga sigue).
-    /// Ese no es un rechazo: lo aplicado puede ser ya el archivo nuevo, y lo que se pierde es la
-    /// recarga de los siguientes. Por eso el ejemplo no dice "sigue el anterior".
+    /// Con [`Flags::watch_file`] llega también, una vez, un [`LoadError::Watch`] si la ruta deja
+    /// de llevar al directorio vigilado: se borra o se recrea (en Linux y Windows: en macOS la
+    /// recarga sigue), o se reapunta un symlink por encima. Ese no es un rechazo: lo aplicado
+    /// puede ser ya el archivo nuevo, y lo que se pierde es la recarga de los siguientes. Por eso
+    /// el ejemplo no dice "sigue el anterior".
     ///
     /// Un rechazo deja vigente el snapshot anterior, así que **sin esto solo se ve en el log de
     /// la librería** (target `breaker_panel::watch`), que un filtro por crate descarta: el
@@ -135,8 +136,12 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// en su lugar): el sistema sigue al renombrado sin decir nada, y no llega ningún aviso.
     /// Para esos despliegues está [`poll_file`](Self::poll_file), que vuelve a encontrarlo. En
     /// macOS no pasa: FSEvents vigila la ruta, encuentra el directorio nuevo y la recarga sigue.
-    /// Pero la ruta resuelta al arrancar: si un symlink por encima del directorio se reapunta
-    /// (`current -> releases/v2`), sigue en el de antes, y sin aviso. Ahí también, `poll_file`.
+    ///
+    /// En todas, el directorio es el que resuelve la ruta al arrancar: si un symlink por encima
+    /// se reapunta (`current -> releases/v2`), la recarga sigue en el de antes. El
+    /// [`LoadError::Watch`] llega con el siguiente evento de ese directorio, al tocar algo en él o
+    /// al borrarlo; en macOS, borrar la release entera con la config en un subdirectorio no
+    /// genera ninguno. Ahí también, `poll_file`.
     ///
     /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
     /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime
@@ -216,8 +221,8 @@ where
     })?;
     let text = read(path)?;
     let flags = Arc::new(Flags::new(Snapshot::from_toml_str(&text)?));
-    let identity = follows_identity::<W>();
-    let source = Arc::new(Source::new(Arc::clone(&flags), path, text, identity));
+    let anchor = Anchor::of::<W>(dir(path));
+    let source = Arc::new(Source::new(Arc::clone(&flags), path, text, anchor));
     let debouncer = debounce::<W>(path, config, source.event_handler())?;
     // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si ya no es
     // válido, el arranque falla, como si la primera lectura lo hubiera encontrado así (§7): aún
@@ -226,14 +231,47 @@ where
     Ok((flags, Watcher::new(&source, debouncer)))
 }
 
-/// Si el backend vigila el directorio del arranque y no su ruta: inotify, kqueue y el de
-/// Windows siguen con ese aunque lo borren y lo creen de nuevo, y dejan de ver cambios (ver
-/// [`Source::check_dir`]). FSEvents vigila la ruta y el sondeo la recorre en cada vuelta: los dos
-/// encuentran el directorio nuevo, y avisar de una vigilancia perdida sería falso. Por el backend
-/// y no por `target_os`: la feature `macos_kqueue` de `notify`, que puede encender cualquier
-/// crate del grafo, cambia FSEvents por kqueue.
-fn follows_identity<W: notify::Watcher>() -> bool {
-    !matches!(W::kind(), WatcherKind::Fsevent | WatcherKind::PollWatcher)
+/// Lo que vigila de verdad el backend, para saber si la ruta sigue llevando a ello (ver
+/// [`Source::check_dir`]). Se decide por el backend y no por `target_os`: la feature
+/// `macos_kqueue` de `notify`, que puede encender cualquier crate del grafo, cambia FSEvents por
+/// kqueue.
+enum Anchor {
+    /// inotify, kqueue y Windows siguen al directorio del arranque aunque lo borren y lo creen de
+    /// nuevo, y entonces dejan de ver cambios.
+    Identity(FileId),
+    /// FSEvents sigue la ruta resuelta al arrancar: encuentra un directorio recreado en ella, y
+    /// compararlo por identificador daría un aviso falso; pero no sigue un symlink reapuntado por
+    /// encima.
+    Resolved(PathBuf),
+}
+
+impl Anchor {
+    /// `None` con el sondeo, que recorre la ruta en cada vuelta y no tiene nada que perder.
+    fn of<W: notify::Watcher>(dir: &Path) -> Option<Self> {
+        match W::kind() {
+            WatcherKind::PollWatcher => None,
+            WatcherKind::Fsevent => fs::canonicalize(dir).ok().map(Self::Resolved),
+            _ => file_id::get_file_id(dir).ok().map(Self::Identity),
+        }
+    }
+
+    /// Si `dir` sigue llevando a lo que vigila el backend.
+    fn holds(&self, dir: &Path, events: &[DebouncedEvent]) -> bool {
+        match self {
+            // Hacen falta las dos señales: Linux reutiliza para el directorio nuevo el inodo del
+            // borrado (el identificador no cambia), pero manda el borrado del propio directorio;
+            // Windows no lo manda, pero el identificador sí cambia.
+            Self::Identity(was) => {
+                let removed = events
+                    .iter()
+                    .any(|e| e.kind.is_remove() && e.paths.iter().any(|p| p == dir));
+                !removed && file_id::get_file_id(dir).is_ok_and(|now| now == *was)
+            }
+            // Sin directorio no se avisa: si se recrea en la misma ruta, FSEvents lo encuentra, y
+            // mientras tanto la lectura falla y llega como rechazo.
+            Self::Resolved(was) => fs::canonicalize(dir).map_or(true, |now| now == *was),
+        }
+    }
 }
 
 impl Watcher {
@@ -255,16 +293,16 @@ struct Source<M> {
     path: PathBuf,
     seen: Mutex<Seen>,
     rejects: Arc<Listeners<LoadError>>,
-    /// El directorio que había al arrancar, si el backend vigila ese y no su ruta (ver
-    /// [`follows_identity`]): lo sigue aunque lo borren y lo creen de nuevo.
-    dir_id: Option<FileId>,
+    /// Lo que vigila el backend; `None` con el sondeo.
+    anchor: Option<Anchor>,
     /// Si ya se avisó de que dejó de ser el mismo: se avisa una vez.
     dir_lost: AtomicBool,
 }
 
 /// Lo que se manda a `on_reject` cuando el directorio vigilado deja de ser el del arranque.
-const DIR_LOST: &str = "el directorio se borró o se recreó: la recarga con eventos ya no ve \
-                        cambios; usa poll_file o reinicia";
+const DIR_LOST: &str = "la ruta ya no lleva al directorio vigilado (se borró, se recreó o se \
+                        reapuntó un symlink): la recarga con eventos ya no ve cambios; usa \
+                        poll_file o reinicia";
 
 /// Lo último que se leyó del archivo, se aplicara o no.
 #[derive(PartialEq)]
@@ -291,14 +329,13 @@ struct Rejection {
 }
 
 impl<M: DeserializeOwned + Default> Source<M> {
-    fn new(flags: Arc<Flags<M>>, path: &Path, text: String, identity: bool) -> Self {
-        let dir_id = identity.then(|| file_id::get_file_id(dir(path)).ok());
+    fn new(flags: Arc<Flags<M>>, path: &Path, text: String, anchor: Option<Anchor>) -> Self {
         Self {
             flags,
             path: path.to_owned(),
             seen: Mutex::new(Seen::Text(text)),
             rejects: Arc::default(),
-            dir_id: dir_id.flatten(),
+            anchor,
             dir_lost: AtomicBool::new(false),
         }
     }
@@ -329,23 +366,14 @@ impl<M: DeserializeOwned + Default> Source<M> {
         }
     }
 
-    /// inotify, kqueue y Windows vigilan el directorio del arranque: si lo borran y lo crean de
-    /// nuevo dejan de avisar, y en silencio. Con la recreación inmediata de un despliegue ni
-    /// siquiera queda un rechazo, porque la última recarga que dispara el directorio viejo ya
-    /// lee el archivo nuevo. Por eso se mira tras cada lote de eventos, y se avisa una vez. Con
-    /// FSEvents no se mira (ver [`follows_identity`]).
-    ///
-    /// Hacen falta las dos señales: Linux reutiliza para el directorio nuevo el inodo del
-    /// borrado (el identificador no cambia), pero manda el borrado del propio directorio;
-    /// Windows no lo manda, pero el identificador sí cambia.
+    /// Si la ruta deja de llevar a lo que vigila el backend (ver [`Anchor`]), la recarga con
+    /// eventos ha muerto, y en silencio. Con la recreación inmediata de un despliegue ni siquiera
+    /// queda un rechazo, porque la última recarga que dispara el directorio viejo ya lee el
+    /// archivo nuevo. Por eso se mira tras cada lote de eventos, y se avisa una vez.
     fn check_dir(&self, events: &[DebouncedEvent]) {
-        let Some(was) = self.dir_id else { return };
+        let Some(anchor) = &self.anchor else { return };
         let dir = dir(&self.path);
-        let removed = events
-            .iter()
-            .any(|e| e.kind.is_remove() && e.paths.iter().any(|p| p == dir));
-        let same = !removed && file_id::get_file_id(dir).is_ok_and(|now| now == was);
-        if !same && !self.dir_lost.swap(true, Ordering::Relaxed) {
+        if !anchor.holds(dir, events) && !self.dir_lost.swap(true, Ordering::Relaxed) {
             self.report_lost(dir);
         }
     }

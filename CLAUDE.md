@@ -70,12 +70,14 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
   accesos, cada recarga dispararía otra.
 - **`PollWatcher` compara mtime con resolución de segundos**: por eso `poll_file` activa
   `compare_contents`.
-- **FSEvents (macOS) vigila la ruta, no el inodo**: recrear o renombrar el directorio no corta la
-  recarga, y `check_dir` no corre con ese backend (`follows_identity`, por `WatcherKind` y no por
-  `target_os`: la feature `macos_kqueue` de `notify` lo cambia por kqueue). Además entrega
-  eventos de justo antes de `watch()`, también el borrado del propio directorio, y borrar el
-  padre no genera ninguno hasta que se recrea. Los tests de eso solo compilan en el job `macos`.
-  La ruta es la resuelta al arrancar (`fsevent-sys` pasa por `CFURLCreateFileReferenceURL`): un
-  symlink reapuntado por encima del directorio la deja en el de antes, y con FSEvents no hay aviso.
+- **FSEvents (macOS) vigila la ruta resuelta al arrancar, no el inodo** (`fsevent-sys` pasa por
+  `CFURLCreateFileReferenceURL`): recrear o renombrar el directorio no corta la recarga, pero
+  reapuntar un symlink por encima sí. Por eso `check_dir` compara con ese backend la ruta
+  canónica y no el identificador (`Anchor`, por `WatcherKind` y no por `target_os`: la feature
+  `macos_kqueue` de `notify` lo cambia por kqueue). `canonicalize` devuelve el nombre del disco:
+  recrear el directorio con otra normalización Unicode cambia la ruta canónica, y ahí FSEvents
+  también deja de ver cambios, así que el aviso es cierto. Además entrega eventos de justo antes
+  de `watch()`, también el borrado del propio directorio, y borrar el padre no genera ninguno
+  hasta que se recrea. Los tests de macOS solo compilan en el job `macos`.
 - `publish = false` hasta la fase 1 del roadmap. Para publicar: quitarlo, añadir `description`,
   `license` y `repository`, y esa licencia al `allow` de `deny.toml`.
