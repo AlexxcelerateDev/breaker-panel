@@ -56,7 +56,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     flags.on_change(|diff| tracing::info!(?diff, "cambio aplicado"));
     // Con el target de la app: un filtro por crate no lo esconde. Si solo quedara en el log de
     // la librería, un archivo roto dejaría el servicio con el estado viejo sin que nadie lo viera.
-    watcher.on_reject(|e| tracing::error!("flags.toml rechazado, sigue el anterior: {e:#}"));
+    // Sin "sigue el anterior": también llega la vigilancia perdida, que no es un rechazo.
+    watcher.on_reject(|e| tracing::error!("flags.toml: {e:#}"));
 
     let app = Router::new()
         .route("/payment-methods", get(payment_methods))
