@@ -109,8 +109,9 @@ jobs:
   # FSEvents vigila por ruta y no por inodo como inotify: recrear el directorio no corta la
   # recarga. Los tests de eso son `cfg(target_os = "macos")` y en Linux ni compilan, así que
   # clippy también los lintea solo aquí. Nada más: en un repo privado, un minuto de macOS cuenta
-  # por diez.
+  # por diez. Por lo mismo no corre con el cron, que está para los advisories y no cambia código.
   macos:
+    if: github.event_name != 'schedule'
     runs-on: macos-latest
 
     steps:
