@@ -1,6 +1,6 @@
 use std::{
     fmt, fs, io,
-    path::{Path, PathBuf},
+    path::{self, Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -19,6 +19,9 @@ use crate::{
 /// Un guardado de editor (temp + rename) llega como varios eventos: se recarga una vez, cuando
 /// dejan de llegar durante este tiempo.
 const DEBOUNCE: Duration = Duration::from_millis(200);
+
+/// El intervalo mínimo de [`Flags::poll_file`]: en cada vuelta lee y hashea todo el directorio.
+const MIN_POLL: Duration = Duration::from_millis(100);
 
 /// [`Source::reload`] sin el tipo de `M`, para que `Watcher` no sea genérico.
 type Reload = Arc<dyn Fn(bool) -> Result<(), LoadError> + Send + Sync>;
@@ -110,6 +113,11 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// En Docker, monta el directorio: con un bind mount de un solo archivo, un guardado
     /// atómico en el host deja al contenedor con el inodo viejo para siempre.
     ///
+    /// El directorio tiene que ser siempre el mismo. Si un despliegue lo borra y lo crea de
+    /// nuevo (`rm -rf` y copiar, un `rsync --delete` del padre), el sistema sigue vigilando el
+    /// que ya no existe: llega un rechazo al borrarlo y después nada más. Para ese despliegue
+    /// está [`poll_file`](Self::poll_file), que vuelve a encontrarlo.
+    ///
     /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
     /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime
     /// async.
@@ -144,7 +152,8 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     ///
     /// En cada vuelta lee y hashea los archivos del directorio: el mtime que compara `notify`
     /// tiene resolución de segundos, y sin mirar el contenido se perdería un cambio que caiga en
-    /// el mismo segundo que el anterior.
+    /// el mismo segundo que el anterior. Por eso un `interval` de menos de 100 ms se sube a
+    /// 100 ms: con cero, sondear ocupaba un núcleo entero.
     ///
     /// # Errors
     ///
@@ -164,7 +173,7 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
         interval: Duration,
     ) -> Result<(Arc<Self>, Watcher), LoadError> {
         let config = notify::Config::default()
-            .with_poll_interval(interval)
+            .with_poll_interval(interval.max(MIN_POLL))
             .with_compare_contents(true);
         start::<M, PollWatcher>(path.as_ref(), config)
     }
@@ -175,6 +184,12 @@ where
     M: DeserializeOwned + Default + Send + Sync + 'static,
     W: notify::Watcher + Send + 'static,
 {
+    // `notify` vigila el directorio resuelto al arrancar, pero una ruta relativa se volvería a
+    // resolver en cada recarga contra el `cwd` de ese momento, y leería otro archivo.
+    let path = &path::absolute(path).map_err(|source| LoadError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
     let text = read(path)?;
     let flags = Arc::new(Flags::new(Snapshot::from_toml_str(&text)?));
     let source = Arc::new(Source::new(Arc::clone(&flags), path, text));
@@ -298,7 +313,8 @@ fn debounce<W>(
 where
     W: notify::Watcher,
 {
-    let dir = parent(path);
+    // La ruta ya es absoluta (`start`): solo la raíz no tiene padre, y no se puede leer.
+    let dir = path.parent().unwrap_or(path);
     let watch_error = |e| LoadError::Watch {
         path: dir.to_owned(),
         source: io::Error::other(e),
@@ -323,13 +339,6 @@ fn on_events(result: DebounceEventResult, reload: &Reload) {
         }
         Ok(_) => {}
         Err(errors) => tracing::warn!(?errors, "error vigilando el archivo de flags"),
-    }
-}
-
-fn parent(path: &Path) -> &Path {
-    match path.parent() {
-        Some(dir) if !dir.as_os_str().is_empty() => dir,
-        _ => Path::new("."),
     }
 }
 

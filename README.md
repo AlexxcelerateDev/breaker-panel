@@ -136,6 +136,10 @@ que cabe en el estado de axum.
   guardado atómico en un host Linux crea un inodo nuevo y el contenedor se queda con el viejo
   para siempre, aunque sondee. En Docker Desktop (Mac, Windows) los eventos no cruzan el montaje:
   ahí, `Flags::poll_file`.
+- **No reemplaces el directorio.** Si un despliegue lo borra y lo crea de nuevo (`rm -rf` y
+  copiar, un `rsync --delete` del padre), `watch_file` sigue vigilando el que ya no existe: llega
+  un rechazo al borrarlo y después nada más. Ahí, `poll_file`, que vuelve a encontrarlo. Un
+  `ConfigMap` no tiene el problema: cambia un symlink dentro de un directorio que sigue vivo.
 
 Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
 informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por
@@ -143,10 +147,11 @@ proceso: no sirve para comparar réplicas. Para eso, `Snapshot::toml()` devuelve
 tal cual, y un health check puede usarlo de dos formas:
 
 - **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se aplicó.
-  Cubre también un evento que nunca llegó (Docker Desktop con `watch_file`), que no llega a
-  `on_reject` porque no hay nada que rechazar. Tolera unos cientos de milisegundos de diferencia:
-  es lo que tarda en recargar. **No cubre el bind mount de un solo archivo**: el disco que ve el
-  contenedor es el mismo inodo viejo, así que coincide con `toml()` aunque el host ya tenga otro.
+  Cubre también un evento que nunca llegó (Docker Desktop con `watch_file`, un directorio
+  recreado), que no llega a `on_reject` porque no hay nada que rechazar. Tolera unos cientos de
+  milisegundos de diferencia: es lo que tarda en recargar. **No cubre el bind mount de un solo
+  archivo**: el disco que ve el contenedor es el mismo inodo viejo, así que coincide con `toml()`
+  aunque el host ya tenga otro.
 - **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el del
   archivo desplegado, calculado fuera del contenedor. Es la comprobación que detecta también el
   caso anterior. Con SHA-256 es el mismo valor que `sha256sum flags.toml`; el algoritmo lo pone
