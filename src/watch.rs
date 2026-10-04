@@ -82,6 +82,11 @@ impl Watcher {
     /// leerse, no vuelve a avisar hasta que cambie. Por eso un callback que llame a `reload` no
     /// entra en bucle.
     ///
+    /// Con [`Flags::watch_file`] llega también, una vez, un [`LoadError::Watch`] si el
+    /// directorio vigilado se borra o se recrea. Ese no es un rechazo: lo aplicado puede ser ya
+    /// el archivo nuevo, y lo que se pierde es la recarga de los siguientes. Por eso el ejemplo
+    /// no dice "sigue el anterior".
+    ///
     /// Un rechazo deja vigente el snapshot anterior, así que **sin esto solo se ve en el log de
     /// la librería** (target `breaker_panel::watch`), que un filtro por crate descarta: el
     /// archivo dice una cosa y el servicio hace otra, sin que nadie lo sepa. Aquí se puede
@@ -97,7 +102,7 @@ impl Watcher {
     ///
     /// let (flags, watcher) = Flags::<()>::watch_file("flags.toml")?;
     /// // `{:#}` incluye la causa: la línea y la columna si el TOML no parsea.
-    /// watcher.on_reject(|e| eprintln!("flags.toml rechazado, sigue el anterior: {e:#}"));
+    /// watcher.on_reject(|e| eprintln!("flags.toml: {e:#}"));
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn on_reject(&self, f: impl Fn(&LoadError) + Send + Sync + 'static) {
@@ -125,8 +130,9 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// que ya no existe y deja de ver cambios. Con la recreación inmediata de un despliegue ni
     /// siquiera hay rechazo: se aplica el archivo nuevo y lo que se pierde es la edición
     /// siguiente. Por eso, en cuanto pasa, llega a [`Watcher::on_reject`] un
-    /// [`LoadError::Watch`]. Para ese despliegue está [`poll_file`](Self::poll_file), que
-    /// vuelve a encontrarlo.
+    /// [`LoadError::Watch`]. **Salvo en Windows si se renombra** (`mv conf conf.viejo` y otro
+    /// en su lugar): el sistema sigue al renombrado sin decir nada, y no llega ningún aviso.
+    /// Para esos despliegues está [`poll_file`](Self::poll_file), que vuelve a encontrarlo.
     ///
     /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
     /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime

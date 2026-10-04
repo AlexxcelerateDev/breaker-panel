@@ -140,8 +140,10 @@ que cabe en el estado de axum.
   copiar, un `rsync --delete` del padre), `watch_file` sigue vigilando el que ya no existe y deja
   de ver cambios. Con la recreación inmediata de un despliegue ni siquiera hay rechazo: se aplica
   el archivo nuevo y lo que se pierde es la edición siguiente. Por eso, en cuanto pasa, llega a
-  `on_reject` un `LoadError::Watch`. Ahí, `poll_file`, que vuelve a encontrarlo. Un `ConfigMap`
-  no tiene el problema: cambia un symlink dentro de un directorio que sigue vivo.
+  `on_reject` un `LoadError::Watch`, **salvo en Windows si se renombra** (`mv conf conf.viejo` y
+  otro en su lugar): el sistema sigue al renombrado sin decir nada, y no llega ningún aviso. Ahí,
+  `poll_file`, que vuelve a encontrarlo. Un `ConfigMap` no tiene el problema: cambia un symlink
+  dentro de un directorio que sigue vivo.
 
 Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
 informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por
