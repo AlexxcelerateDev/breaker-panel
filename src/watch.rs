@@ -12,7 +12,7 @@ use notify_debouncer_full::{
     DebounceEventHandler, DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache,
     file_id::{self, FileId},
     new_debouncer_opt,
-    notify::{self, PollWatcher, RecommendedWatcher, RecursiveMode},
+    notify::{self, PollWatcher, RecommendedWatcher, RecursiveMode, WatcherKind},
 };
 use serde::de::DeserializeOwned;
 
@@ -83,9 +83,9 @@ impl Watcher {
     /// entra en bucle.
     ///
     /// Con [`Flags::watch_file`] llega también, una vez, un [`LoadError::Watch`] si el
-    /// directorio vigilado se borra o se recrea. Ese no es un rechazo: lo aplicado puede ser ya
-    /// el archivo nuevo, y lo que se pierde es la recarga de los siguientes. Por eso el ejemplo
-    /// no dice "sigue el anterior".
+    /// directorio vigilado se borra o se recrea (en Linux y Windows: en macOS la recarga sigue).
+    /// Ese no es un rechazo: lo aplicado puede ser ya el archivo nuevo, y lo que se pierde es la
+    /// recarga de los siguientes. Por eso el ejemplo no dice "sigue el anterior".
     ///
     /// Un rechazo deja vigente el snapshot anterior, así que **sin esto solo se ve en el log de
     /// la librería** (target `breaker_panel::watch`), que un filtro por crate descarta: el
@@ -125,14 +125,15 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// En Docker, monta el directorio: con un bind mount de un solo archivo, un guardado
     /// atómico en el host deja al contenedor con el inodo viejo para siempre.
     ///
-    /// El directorio tiene que ser siempre el mismo. Si un despliegue lo borra y lo crea de
-    /// nuevo (`rm -rf` y copiar, un `rsync --delete` del padre), el sistema sigue vigilando el
-    /// que ya no existe y deja de ver cambios. Con la recreación inmediata de un despliegue ni
-    /// siquiera hay rechazo: se aplica el archivo nuevo y lo que se pierde es la edición
-    /// siguiente. Por eso, en cuanto pasa, llega a [`Watcher::on_reject`] un
+    /// En Linux y Windows el directorio tiene que ser siempre el mismo. Si un despliegue lo
+    /// borra y lo crea de nuevo (`rm -rf` y copiar, un `rsync --delete` del padre), el sistema
+    /// sigue vigilando el que ya no existe y deja de ver cambios. Con la recreación inmediata de
+    /// un despliegue ni siquiera hay rechazo: se aplica el archivo nuevo y lo que se pierde es
+    /// la edición siguiente. Por eso, en cuanto pasa, llega a [`Watcher::on_reject`] un
     /// [`LoadError::Watch`]. **Salvo en Windows si se renombra** (`mv conf conf.viejo` y otro
     /// en su lugar): el sistema sigue al renombrado sin decir nada, y no llega ningún aviso.
-    /// Para esos despliegues está [`poll_file`](Self::poll_file), que vuelve a encontrarlo.
+    /// Para esos despliegues está [`poll_file`](Self::poll_file), que vuelve a encontrarlo. En
+    /// macOS no pasa: FSEvents vigila la ruta, encuentra el directorio nuevo y la recarga sigue.
     ///
     /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
     /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime
@@ -159,7 +160,7 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn watch_file(path: impl AsRef<Path>) -> Result<(Arc<Self>, Watcher), LoadError> {
-        start::<M, RecommendedWatcher>(path.as_ref(), notify::Config::default(), true)
+        start::<M, RecommendedWatcher>(path.as_ref(), notify::Config::default())
     }
 
     /// Como [`watch_file`](Self::watch_file), pero mirando el archivo cada `interval` en vez de
@@ -195,17 +196,11 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
         let config = notify::Config::default()
             .with_poll_interval(interval.max(MIN_POLL))
             .with_compare_contents(true);
-        start::<M, PollWatcher>(path.as_ref(), config, false)
+        start::<M, PollWatcher>(path.as_ref(), config)
     }
 }
 
-/// `events` es `false` con `poll_file`: el sondeo vuelve a encontrar un directorio recreado, y
-/// no hace falta vigilar que siga siendo el mismo (ver [`Source::check_dir`]).
-fn start<M, W>(
-    path: &Path,
-    config: notify::Config,
-    events: bool,
-) -> Result<(Arc<Flags<M>>, Watcher), LoadError>
+fn start<M, W>(path: &Path, config: notify::Config) -> Result<(Arc<Flags<M>>, Watcher), LoadError>
 where
     M: DeserializeOwned + Default + Send + Sync + 'static,
     W: notify::Watcher + Send + 'static,
@@ -218,13 +213,24 @@ where
     })?;
     let text = read(path)?;
     let flags = Arc::new(Flags::new(Snapshot::from_toml_str(&text)?));
-    let source = Arc::new(Source::new(Arc::clone(&flags), path, text, events));
+    let identity = follows_identity::<W>();
+    let source = Arc::new(Source::new(Arc::clone(&flags), path, text, identity));
     let debouncer = debounce::<W>(path, config, source.event_handler())?;
     // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si ya no es
     // válido, el arranque falla, como si la primera lectura lo hubiera encontrado así (§7): aún
     // no hay `on_reject` al que avisar, y aceptarlo dejaría la réplica atrasada sin decirlo.
     source.apply(false).map_err(|rejection| rejection.error)?;
     Ok((flags, Watcher::new(&source, debouncer)))
+}
+
+/// Si el backend vigila el directorio del arranque y no su ruta: inotify, kqueue y el de
+/// Windows siguen con ese aunque lo borren y lo creen de nuevo, y dejan de ver cambios (ver
+/// [`Source::check_dir`]). FSEvents vigila la ruta y el sondeo la recorre en cada vuelta: los dos
+/// encuentran el directorio nuevo, y avisar de una vigilancia perdida sería falso. Por el backend
+/// y no por `target_os`: la feature `macos_kqueue` de `notify`, que puede encender cualquier
+/// crate del grafo, cambia FSEvents por kqueue.
+fn follows_identity<W: notify::Watcher>() -> bool {
+    !matches!(W::kind(), WatcherKind::Fsevent | WatcherKind::PollWatcher)
 }
 
 impl Watcher {
@@ -246,8 +252,8 @@ struct Source<M> {
     path: PathBuf,
     seen: Mutex<Seen>,
     rejects: Arc<Listeners<LoadError>>,
-    /// El directorio que había al arrancar, si se vigila con eventos: el sistema sigue
-    /// vigilando ese aunque lo borren y lo creen de nuevo.
+    /// El directorio que había al arrancar, si el backend vigila ese y no su ruta (ver
+    /// [`follows_identity`]): lo sigue aunque lo borren y lo creen de nuevo.
     dir_id: Option<FileId>,
     /// Si ya se avisó de que dejó de ser el mismo: se avisa una vez.
     dir_lost: AtomicBool,
@@ -282,8 +288,8 @@ struct Rejection {
 }
 
 impl<M: DeserializeOwned + Default> Source<M> {
-    fn new(flags: Arc<Flags<M>>, path: &Path, text: String, events: bool) -> Self {
-        let dir_id = events.then(|| file_id::get_file_id(dir(path)).ok());
+    fn new(flags: Arc<Flags<M>>, path: &Path, text: String, identity: bool) -> Self {
+        let dir_id = identity.then(|| file_id::get_file_id(dir(path)).ok());
         Self {
             flags,
             path: path.to_owned(),
@@ -320,10 +326,11 @@ impl<M: DeserializeOwned + Default> Source<M> {
         }
     }
 
-    /// Con eventos, el sistema vigila el directorio del arranque: si lo borran y lo crean de
-    /// nuevo deja de avisar, y en silencio. Con la recreación inmediata de un despliegue ni
+    /// inotify, kqueue y Windows vigilan el directorio del arranque: si lo borran y lo crean de
+    /// nuevo dejan de avisar, y en silencio. Con la recreación inmediata de un despliegue ni
     /// siquiera queda un rechazo, porque la última recarga que dispara el directorio viejo ya
-    /// lee el archivo nuevo. Por eso se mira tras cada lote de eventos, y se avisa una vez.
+    /// lee el archivo nuevo. Por eso se mira tras cada lote de eventos, y se avisa una vez. Con
+    /// FSEvents no se mira (ver [`follows_identity`]).
     ///
     /// Hacen falta las dos señales: Linux reutiliza para el directorio nuevo el inodo del
     /// borrado (el identificador no cambia), pero manda el borrado del propio directorio;

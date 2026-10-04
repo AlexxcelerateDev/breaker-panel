@@ -136,14 +136,16 @@ que cabe en el estado de axum.
   guardado atómico en un host Linux crea un inodo nuevo y el contenedor se queda con el viejo
   para siempre, aunque sondee. En Docker Desktop (Mac, Windows) los eventos no cruzan el montaje:
   ahí, `Flags::poll_file`.
-- **No reemplaces el directorio.** Si un despliegue lo borra y lo crea de nuevo (`rm -rf` y
-  copiar, un `rsync --delete` del padre), `watch_file` sigue vigilando el que ya no existe y deja
-  de ver cambios. Con la recreación inmediata de un despliegue ni siquiera hay rechazo: se aplica
-  el archivo nuevo y lo que se pierde es la edición siguiente. Por eso, en cuanto pasa, llega a
-  `on_reject` un `LoadError::Watch`, **salvo en Windows si se renombra** (`mv conf conf.viejo` y
-  otro en su lugar): el sistema sigue al renombrado sin decir nada, y no llega ningún aviso. Ahí,
-  `poll_file`, que vuelve a encontrarlo. Un `ConfigMap` no tiene el problema: cambia un symlink
-  dentro de un directorio que sigue vivo.
+- **No reemplaces el directorio** (Linux, Windows). Si un despliegue lo borra y lo crea de nuevo
+  (`rm -rf` y copiar, un `rsync --delete` del padre), `watch_file` sigue vigilando el que ya no
+  existe y deja de ver cambios. Con la recreación inmediata de un despliegue ni siquiera hay
+  rechazo: se aplica el archivo nuevo y lo que se pierde es la edición siguiente. Por eso, en
+  cuanto pasa, llega a `on_reject` un `LoadError::Watch`, **salvo en Windows si se renombra**
+  (`mv conf conf.viejo` y otro en su lugar): el sistema sigue al renombrado sin decir nada, y no
+  llega ningún aviso. Ahí, `poll_file`, que vuelve a encontrarlo. Un `ConfigMap` no tiene el
+  problema: cambia un symlink dentro de un directorio que sigue vivo. En macOS tampoco: FSEvents
+  vigila la ruta, encuentra el directorio nuevo y la recarga sigue, sin aviso porque no hay nada
+  que avisar.
 
 Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
 informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por
