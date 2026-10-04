@@ -122,8 +122,9 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     /// Vigila el directorio del archivo, no el archivo: así ve los guardados atómicos de los
     /// editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes. Por eso
     /// conviene que el archivo esté solo en su directorio: cualquier cambio a su lado lo relee.
-    /// En Docker, monta el directorio: con un bind mount de un solo archivo, un guardado
-    /// atómico en el host deja al contenedor con el inodo viejo para siempre.
+    /// En Docker, monta el directorio: con un bind mount de un solo archivo no llega ningún
+    /// evento del host en Docker Desktop para Mac, y en un host Linux un guardado atómico deja al
+    /// contenedor con el inodo viejo para siempre.
     ///
     /// En Linux y Windows el directorio tiene que ser siempre el mismo. Si un despliegue lo
     /// borra y lo crea de nuevo (`rm -rf` y copiar, un `rsync --delete` del padre), el sistema
@@ -164,8 +165,8 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
     }
 
     /// Como [`watch_file`](Self::watch_file), pero mirando el archivo cada `interval` en vez de
-    /// esperar eventos del sistema: para los bind mounts de Docker en Mac y Windows, que no los
-    /// propagan.
+    /// esperar eventos del sistema: para los bind mounts de Docker Desktop para Windows, que no
+    /// los propagan (en Mac sí, si se monta el directorio).
     ///
     /// En cada vuelta lee y hashea los archivos del directorio: el mtime que compara `notify`
     /// tiene resolución de segundos, y sin mirar el contenido se perdería un cambio que caiga en
