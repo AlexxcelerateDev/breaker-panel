@@ -242,6 +242,8 @@ fn arrancar_sin_archivo_falla() -> TestResult {
     Ok(())
 }
 
+// En macOS la recarga sigue, y no hay nada que avisar: el test siguiente.
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn recrear_el_directorio_llega_a_on_reject() -> TestResult {
     let path = flags_file("recrear_directorio")?;
@@ -260,6 +262,32 @@ fn recrear_el_directorio_llega_a_on_reject() -> TestResult {
     while !avisos.iter().any(|e| e.starts_with("no se pudo vigilar")) {
         avisos.push(next(&rejected)?);
     }
+    Ok(())
+}
+
+/// FSEvents vigila la ruta, no el directorio del arranque: encuentra el nuevo y la recarga sigue.
+#[cfg(target_os = "macos")]
+#[test]
+fn en_macos_recrear_el_directorio_no_corta_la_recarga() -> TestResult {
+    let path = flags_file("recrear_directorio_macos")?;
+    let dir = path.parent().ok_or("sin directorio")?.to_owned();
+    let (flags, watcher) = Flags::<()>::watch_file(&path)?;
+    let (rejected, rx) = (rejects(&watcher), diffs(&flags));
+
+    fs::remove_dir_all(&dir)?;
+    fs::create_dir_all(&dir)?;
+    fs::write(&path, OFF)?;
+    assert_eq!(next(&rx)?.changed, ["payments"]);
+    // La edición siguiente, que es la que se pierde en Linux y Windows.
+    atomic_save(&path, ON)?;
+    assert_eq!(next(&rx)?.changed, ["payments"]);
+
+    // Los lotes de eventos se procesan en orden: un aviso del de la recreación ya habría llegado.
+    assert!(
+        rejected
+            .try_iter()
+            .all(|e| !e.starts_with("no se pudo vigilar"))
+    );
     Ok(())
 }
 
