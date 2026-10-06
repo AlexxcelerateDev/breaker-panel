@@ -1,104 +1,105 @@
 use std::{error::Error, fmt, io, iter, path::PathBuf};
 
-/// Por qué una consulta no deja pasar.
+/// Why a query does not let the operation through.
 ///
-/// Cómo se traduce a HTTP lo decide la app: `InvalidSegment` y un `Unknown` sobre una key armada
-/// con input del usuario suelen ser un 400; un `Unknown` sobre cualquier otra key, un bug de
-/// configuración (500); `Disabled`, un 503 con el `reason`.
+/// Mapping it to HTTP is up to the app: `InvalidSegment`, and an `Unknown` on a key built from
+/// user input, are usually a 400; an `Unknown` on any other key is a configuration bug (500);
+/// `Disabled` is a 503 with the `reason`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FlagError {
-    /// La key está apagada, ella o un ancestro declarado.
+    /// The key is disabled, either itself or a declared ancestor.
     Disabled {
-        /// La key consultada.
+        /// The queried key.
         key: String,
-        /// El ancestro apagado más cercano a la raíz, o la propia key.
+        /// The disabled ancestor closest to the root, or the key itself.
         disabled_by: String,
-        /// El `reason` de `disabled_by`, pensado para el usuario final.
+        /// The `reason` of `disabled_by`, written for the end user.
         reason: String,
     },
-    /// La key no está declarada en el archivo: falla cerrado, nunca un `false` silencioso.
+    /// The key is not declared in the file: it fails closed, never a silent `false`.
     Unknown {
-        /// La key consultada.
+        /// The queried key.
         key: String,
     },
-    /// Un segmento llegado de fuera no cumple `^[a-z0-9_]+$`. Lo devuelve [`segment`](crate::segment).
+    /// A segment coming from outside does not match `^[a-z0-9_]+$`. Returned by
+    /// [`segment`](crate::segment).
     InvalidSegment {
-        /// El segmento tal como llegó.
+        /// The segment as it arrived.
         segment: String,
     },
 }
 
 impl fmt::Display for FlagError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // `{:?}` en lo que puede venir de fuera: lo entrecomilla y escapa saltos de línea.
+        // `{:?}` on whatever may come from outside: it quotes it and escapes newlines.
         match self {
             Self::Disabled {
                 key,
                 disabled_by,
                 reason,
-            } if key == disabled_by => write!(f, "{key:?} está apagado: {reason}"),
+            } if key == disabled_by => write!(f, "{key:?} is disabled: {reason}"),
             Self::Disabled {
                 key,
                 disabled_by,
                 reason,
-            } => write!(f, "{key:?} está apagado por {disabled_by:?}: {reason}"),
-            Self::Unknown { key } => write!(f, "la key {key:?} no está declarada"),
-            Self::InvalidSegment { segment } => write!(f, "segmento inválido: {segment:?}"),
+            } => write!(f, "{key:?} is disabled by {disabled_by:?}: {reason}"),
+            Self::Unknown { key } => write!(f, "key {key:?} is not declared"),
+            Self::InvalidSegment { segment } => write!(f, "invalid segment: {segment:?}"),
         }
     }
 }
 
 impl Error for FlagError {}
 
-/// Por qué no se pudo cargar o recargar un archivo de flags. Al recargar, cualquiera de estos
-/// deja vigente el snapshot anterior.
+/// Why a flags file could not be loaded or reloaded. On a reload, any of these keeps the
+/// previous snapshot in effect.
 ///
-/// `Display` sigue la convención de std: solo el primer nivel, y la causa por `source()`. Con
-/// `{:#}` escribe además la cadena de causas, con la línea y la columna si el TOML no parsea: es
-/// lo que conviene registrar en un log.
+/// `Display` follows the std convention: only the top level, with the cause behind `source()`.
+/// With `{:#}` it also writes the chain of causes, including the line and column when the TOML
+/// does not parse: that is what you want in a log.
 ///
 /// ```
 /// use breaker_panel::Snapshot;
 ///
 /// let e = Snapshot::<()>::from_toml_str("[flags]\n\"a\" = {").unwrap_err();
-/// assert_eq!(e.to_string(), "el archivo de flags no es válido");
+/// assert_eq!(e.to_string(), "invalid flags file");
 /// assert!(format!("{e:#}").contains("line 2"));
 /// ```
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum LoadError {
-    /// No se pudo leer el archivo.
+    /// The file could not be read.
     Io {
-        /// El archivo, con la ruta absoluta (la original si no se pudo resolver).
+        /// The file, as an absolute path (the original one if it could not be resolved).
         path: PathBuf,
-        /// La causa.
+        /// The cause.
         source: io::Error,
     },
-    /// No se pudo vigilar el directorio del archivo: al arrancar, o después (por
-    /// `Watcher::on_reject`) si se borró o se recreó.
+    /// The file's directory could not be watched: at startup, or later (through
+    /// `Watcher::on_reject`) if it was deleted or recreated.
     Watch {
-        /// El directorio vigilado, con la ruta absoluta.
+        /// The watched directory, as an absolute path.
         path: PathBuf,
-        /// La causa.
+        /// The cause.
         source: io::Error,
     },
-    /// TOML inválido, campo desconocido o `meta` que no deserializa en `M`.
+    /// Invalid TOML, an unknown field, or a `meta` that does not deserialize into `M`.
     Toml(TomlError),
-    /// Una key no cumple `^[a-z0-9_]+(\.[a-z0-9_]+)*$`.
+    /// A key does not match `^[a-z0-9_]+(\.[a-z0-9_]+)*$`.
     InvalidKey {
-        /// La key tal como está en el archivo.
+        /// The key as written in the file.
         key: String,
     },
-    /// Una entrada con `enabled = false` no trae `reason`, o lo trae vacío.
+    /// An entry with `enabled = false` has no `reason`, or an empty one.
     MissingReason {
-        /// La key de la entrada.
+        /// The entry's key.
         key: String,
     },
-    /// Una key declarada con `flag_key!` no está en el archivo. Si faltan
-    /// varias, la primera en orden alfabético: sale la misma en cada build.
+    /// A key declared with `flag_key!` is not in the file. If several are missing, the first in
+    /// alphabetical order: the same one on every build.
     MissingKey {
-        /// La key registrada.
+        /// The registered key.
         key: String,
     },
 }
@@ -118,13 +119,13 @@ impl fmt::Display for LoadError {
 impl LoadError {
     fn headline(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io { path, .. } => write!(f, "no se pudo leer {}", path.display()),
-            Self::Watch { path, .. } => write!(f, "no se pudo vigilar {}", path.display()),
-            Self::Toml(_) => f.write_str("el archivo de flags no es válido"),
-            Self::InvalidKey { key } => write!(f, "key con formato inválido: {key:?}"),
-            Self::MissingReason { key } => write!(f, "{key:?} está apagado sin `reason`"),
+            Self::Io { path, .. } => write!(f, "failed to read {}", path.display()),
+            Self::Watch { path, .. } => write!(f, "failed to watch {}", path.display()),
+            Self::Toml(_) => f.write_str("invalid flags file"),
+            Self::InvalidKey { key } => write!(f, "invalid key format: {key:?}"),
+            Self::MissingReason { key } => write!(f, "{key:?} is disabled without a `reason`"),
             Self::MissingKey { key } => {
-                write!(f, "la key registrada {key:?} no está en el archivo")
+                write!(f, "registered key {key:?} is missing from the file")
             }
         }
     }
@@ -140,10 +141,10 @@ impl Error for LoadError {
     }
 }
 
-/// El detalle de un [`LoadError::Toml`]: el mensaje del parser, con línea y columna.
+/// The details of a [`LoadError::Toml`]: the parser's message, with line and column.
 ///
-/// Opaco a propósito: exponer el error de `toml` haría de cada major de `toml` un major de este
-/// crate.
+/// Opaque on purpose: exposing the `toml` error would make every `toml` major release a major
+/// release of this crate.
 #[derive(Debug)]
 pub struct TomlError(pub(crate) toml::de::Error);
 

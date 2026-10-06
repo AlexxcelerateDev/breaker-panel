@@ -6,9 +6,14 @@ edition = "2024"
 # `rust-toolchain.toml` porque nada en el crate exige uno más nuevo, y por eso la verifica el
 # job `msrv` del CI. Ver `.claude/rules/00-rust-toolchain.md`.
 rust-version = "1.98"
-# Default restrictivo: un `cargo publish` accidental no sale. Para publicar en crates.io, quitar
-# esta línea y añadir `description`, `license` y `repository`, que crates.io exige.
-publish = false
+description = "Embedded hierarchical kill switches: a local TOML file, hot reload and cascading by key prefix, no external service."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AlexxcelerateDev/breaker-panel"
+keywords = ["kill-switch", "feature-flags", "toggles", "hot-reload", "toml"]
+categories = ["config"]
+# Solo lo que necesita quien lo consume (o lo prueba): las notas internas (`CLAUDE.md`,
+# `.claude/`, `docs/`) y la config del repo no viajan en el paquete.
+include = ["src/", "examples/", "tests/", "README.md", "LICENSE-*"]
 
 [features]
 default = ["watch", "registry"]

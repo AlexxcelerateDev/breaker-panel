@@ -1,16 +1,17 @@
 # breaker-panel
 
-Kill switches jerárquicos embebidos para Rust: un archivo TOML local, hot-reload y cascada por
-prefijo de key, sin servicio externo.
+Embedded hierarchical kill switches for Rust: a local TOML file, hot reload and cascading by key
+prefix, no external service.
 
-Son *ops toggles* en la taxonomía de Pete Hodgson: apagar en caliente un proveedor caído o una
-operación pausada, sin redeploy. No son release toggles, experimentos ni permisos por usuario.
+They are *ops toggles* in Pete Hodgson's taxonomy: turn off a failing provider or pause an
+operation on the fly, without a redeploy. They are not release toggles, experiments or per-user
+permissions.
 
 ```toml
 [flags]
 "payments"                       = { enabled = true }
 "payments.methods.paypal"        = { enabled = true, meta = { display_name = "PayPal" } }
-"payments.methods.paypal.refund" = { enabled = false, reason = "PayPal no procesa reembolsos hoy" }
+"payments.methods.paypal.refund" = { enabled = false, reason = "PayPal is not processing refunds today" }
 "payments.methods.stripe"        = { enabled = true, meta = { display_name = "Stripe" } }
 "payments.methods.stripe.refund" = { enabled = true }
 "payments.ops.charge"            = { enabled = true }
@@ -31,32 +32,32 @@ struct Meta {
 # [flags]
 # "payments"                       = { enabled = true }
 # "payments.methods.paypal"        = { enabled = true, meta = { display_name = "PayPal" } }
-# "payments.methods.paypal.refund" = { enabled = false, reason = "PayPal no procesa reembolsos hoy" }
+# "payments.methods.paypal.refund" = { enabled = false, reason = "PayPal is not processing refunds today" }
 # "payments.methods.stripe"        = { enabled = true, meta = { display_name = "Stripe" } }
 # "payments.methods.stripe.refund" = { enabled = true }
 # "payments.ops.charge"            = { enabled = true }
 # "payments.ops.refund"            = { enabled = true }
 # "#;
-// En producción: `let (flags, _watcher) = Flags::<Meta>::watch_file("flags.toml")?;`
+// In production: `let (flags, _watcher) = Flags::<Meta>::watch_file("flags.toml")?;`
 let flags: Flags<Meta> = Flags::from_toml_str(toml)?;
 
-// GET /payment-methods: varias consultas sobre el mismo snapshot son consistentes.
+// GET /payment-methods: several queries on the same snapshot are consistent.
 let snap = flags.snapshot();
 for (key, r) in snap.children("payments.methods") {
-    println!("{key}: {} activo={} {:?}", r.meta.display_name, r.enabled, r.reason);
+    println!("{key}: {} enabled={} {:?}", r.meta.display_name, r.enabled, r.reason);
 }
 
-// POST /refunds: un `require` por dimensión. El método llega del usuario: se valida antes.
+// POST /refunds: one `require` per dimension. The method comes from the user: validate it first.
 let m = segment("paypal")?;
 let err = flags.require(format!("payments.methods.{m}.refund")).unwrap_err();
-assert_eq!(err.to_string(), r#""payments.methods.paypal.refund" está apagado: PayPal no procesa reembolsos hoy"#);
+assert_eq!(err.to_string(), r#""payments.methods.paypal.refund" is disabled: PayPal is not processing refunds today"#);
 flags.require("payments.ops.refund")?;
 # Ok(())
 # }
 ```
 
-Un servidor completo con axum —los tres endpoints, la traducción de errores a HTTP y la recarga
-en caliente— está en [`examples/axum.rs`](examples/axum.rs):
+A complete axum server —the three endpoints, error-to-HTTP mapping and hot reloading— is in
+[`examples/axum.rs`](examples/axum.rs):
 
 ```text
 cargo run --example axum
@@ -64,141 +65,140 @@ curl localhost:3000/payment-methods
 curl -X POST localhost:3000/refunds -H 'content-type: application/json' -d '{"method":"paypal"}'
 ```
 
-## Semántica
+## Semantics
 
-- Cada entrada lleva `enabled`; `reason` es obligatorio si está apagada (se le muestra al usuario
-  final); `meta` es opcional y lo deserializa tu tipo `M`. Cualquier otro campo es un error.
-- **Cascada sin override**: una key queda encendida solo si ella y todos sus ancestros
-  declarados lo están. `disabled_by` es el ancestro apagado más cercano a la raíz, y el `reason`
-  expuesto es el suyo.
-- Un segmento intermedio no declarado (`payments.methods`) es neutro: no apaga nada y no se puede
-  consultar.
-- Consultar una key no declarada da `Unknown`, nunca un `false` silencioso.
-- El archivo se valida entero al cargar y al recargar. Si una recarga falla, sigue vigente el
-  snapshot anterior y no se avisa a `on_change`. Al arrancar no hay defaults: archivo ausente o
-  inválido es un error.
-- Las keys van **entre comillas**: sin ellas, TOML lee `payments.methods` como tablas anidadas
-  (y la carga falla).
+- Each entry has `enabled`; `reason` is required when it is disabled (it is shown to the end
+  user); `meta` is optional and is deserialized by your type `M`. Any other field is an error.
+- **Cascade without override**: a key is enabled only if it and all its declared ancestors are.
+  `disabled_by` is the disabled ancestor closest to the root, and the exposed `reason` is its
+  own.
+- An undeclared intermediate segment (`payments.methods`) is neutral: it disables nothing and
+  cannot be queried.
+- Querying an undeclared key gives `Unknown`, never a silent `false`.
+- The whole file is validated on load and on reload. If a reload fails, the previous snapshot
+  stays in effect and `on_change` is not notified. There are no defaults at startup: a missing
+  or invalid file is an error.
+- Keys go **in quotes**: without them, TOML reads `payments.methods` as nested tables (and the
+  load fails).
 
-## Guía de modelado
+## Modeling guide
 
-Formato de key: `<dominio>.<dimensión>.<valor>[.<subswitch>]`. La librería hace cumplir el
-formato (`^[a-z0-9_]+(\.[a-z0-9_]+)*$`) y el `reason`; el resto son reglas de diseño.
+Key format: `<domain>.<dimension>.<value>[.<subswitch>]`. The library enforces the format
+(`^[a-z0-9_]+(\.[a-z0-9_]+)*$`) and the `reason`; the rest are design rules.
 
-1. **Una raíz por dominio.** Todo lo que deba morir con el dominio va debajo de él.
-2. **Cada concepto vive en un solo lugar.** Un proveedor existe solo bajo `payments.methods`.
-   Dos ramas son dos fuentes de verdad.
-3. **Hermanos del mismo tipo.** Los hijos de un nodo son todos métodos o todos operaciones,
-   nunca mezclados, para que `children()` tenga sentido.
-4. **Prueba del padre.** "Si apago el padre, ¿el hijo puede seguir vivo?" Si la respuesta es
-   "nunca", es hijo. Si tiene dos padres naturales (`paypal` y `refund`), es una combinación: se
-   ubica según la regla 5 y el otro padre se comprueba con un segundo `require`.
-5. **Las combinaciones cuelgan del eje que más cambia.** Los métodos se añaden y se quitan; las
-   operaciones casi no cambian. Un método nuevo es un bloque autocontenido, y dar de baja un
-   proveedor es borrar su bloque.
-6. **Subswitches solo cuando hacen falta, y en todos los hermanos.** Si existe `.refund` en un
-   método, debe existir en todos: si falta en uno, la key es desconocida y falla cerrado.
-7. **Nombres.** Dimensión en plural (`methods`, `ops`), valores en singular (`paypal`,
-   `refund`), `snake_case`.
-8. **Todo lo apagado lleva `reason`.**
+1. **One root per domain.** Everything that should die with the domain goes under it.
+2. **Each concept lives in a single place.** A provider exists only under `payments.methods`.
+   Two branches are two sources of truth.
+3. **Siblings of the same kind.** A node's children are all methods or all operations, never
+   mixed, so that `children()` makes sense.
+4. **The parent test.** "If I turn off the parent, can the child stay alive?" If the answer is
+   "never", it is a child. If it has two natural parents (`paypal` and `refund`), it is a
+   combination: place it by rule 5 and check the other parent with a second `require`.
+5. **Combinations hang from the axis that changes most.** Methods get added and removed;
+   operations hardly change. A new method is a self-contained block, and retiring a provider is
+   deleting its block.
+6. **Subswitches only when needed, and on every sibling.** If `.refund` exists on one method,
+   it must exist on all of them: if it is missing on one, the key is unknown and fails closed.
+7. **Names.** Dimension in plural (`methods`, `ops`), values in singular (`paypal`, `refund`),
+   `snake_case`.
+8. **Everything disabled has a `reason`.**
 
-## Errores y HTTP
+## Errors and HTTP
 
-La traducción la decide la app. Una sugerencia:
+The mapping is up to the app. A suggestion:
 
-| Error | Respuesta |
+| Error | Response |
 |---|---|
 | `InvalidSegment` | 400 |
-| `Unknown` en una key armada con input del usuario | 400 (método inexistente) |
-| `Unknown` en cualquier otra key | 500 (bug de configuración) |
-| `Disabled` | 503 con el `reason` |
+| `Unknown` on a key built from user input | 400 (nonexistent method) |
+| `Unknown` on any other key | 500 (configuration bug) |
+| `Disabled` | 503 with the `reason` |
 
-Para `Disabled`, 503 y no 409 ni 422: un cliente que reintenta trata esos dos como permanentes y
-abandona, cuando un kill switch es por definición temporal.
+For `Disabled`, 503 and not 409 or 422: a retrying client treats those two as permanent and
+gives up, when a kill switch is temporary by definition.
 
-## Recarga en caliente (feature `watch`)
+## Hot reloading (`watch` feature)
 
-`Flags::watch_file` vigila el **directorio** del archivo, así que ve los guardados atómicos de
-los editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes.
-`Watcher::reload` fuerza la recarga (SIGHUP, endpoint admin); soltar el `Watcher` deja de vigilar.
-El watcher corre en su propio hilo: no hace falta runtime async. `Watcher` es `Send + Sync`, así
-que cabe en el estado de axum.
+`Flags::watch_file` watches the file's **directory**, so it sees editors' atomic saves (temp +
+rename) and the symlink swap of a Kubernetes `ConfigMap`. `Watcher::reload` forces a reload
+(SIGHUP, admin endpoint); dropping the `Watcher` stops watching. The watcher runs on its own
+thread: no async runtime needed. `Watcher` is `Send + Sync`, so it fits in axum's state.
 
-- **Una recarga rechazada deja vigente el snapshot anterior**: el archivo dice una cosa y el
-  servicio hace otra. Regístrala con `Watcher::on_reject`; si no, solo queda en el log de la
-  librería, y un filtro por crate lo descarta (ver [Observabilidad](#observabilidad)).
-- **Guárdalo de forma atómica** (temporal + rename, como los editores y los `ConfigMap`): una
-  escritura en el sitio se puede leer a medias. En caliente eso es un rechazo que llega a
-  `on_reject` y se corrige solo al terminar la escritura; al arrancar, un `watch_file` que falla.
-  En Windows, el rename de `File.Move` (.NET), `os.replace` (Python) y `move` (cmd) falla con
-  acceso denegado si en ese instante otro proceso tiene el archivo abierto, aunque sea para
-  leerlo: la propia recarga, o `poll_file` en cada vuelta. Reintenta, o usa un rename con
-  semántica POSIX (`std::fs::rename` de Rust). `Move-Item -Force` no falla, pero no es atómico:
-  borra y luego mueve.
-- **El archivo, solo en su directorio**: cualquier cambio a su lado lo relee, y `poll_file`
-  hashea todo lo que hay en él en cada vuelta.
-- **Docker: monta el directorio, no el archivo.** Con un bind mount de un solo archivo, en
-  Docker Desktop para Mac `watch_file` no ve ningún cambio del host, ni una escritura en el
-  sitio; en un host Linux, un guardado atómico crea un inodo nuevo y el contenedor se queda con el
-  viejo para siempre, aunque sondee. Con el directorio montado, en Docker Desktop para Mac
-  (VirtioFS) los eventos cruzan: `watch_file` recarga, y solo se pierde el borrado del archivo,
-  que no llega a `on_reject`. En Docker Desktop para Windows no cruzan: ahí, `Flags::poll_file`.
-- **No reemplaces el directorio** (Linux, Windows). Si un despliegue lo borra y lo crea de nuevo
-  (`rm -rf` y copiar, un `rsync --delete` del padre), `watch_file` sigue vigilando el que ya no
-  existe y deja de ver cambios. Con la recreación inmediata de un despliegue ni siquiera hay
-  rechazo: se aplica el archivo nuevo y lo que se pierde es la edición siguiente. Por eso, en
-  cuanto pasa, llega a `on_reject` un `LoadError::Watch`, **salvo en Windows si se renombra**
-  (`mv conf conf.viejo` y otro en su lugar): el sistema sigue al renombrado sin decir nada, y no
-  llega ningún aviso. Ahí, `poll_file`, que vuelve a encontrarlo. Un `ConfigMap` no tiene el
-  problema: cambia un symlink dentro de un directorio que sigue vivo. En macOS tampoco: FSEvents
-  vigila la ruta, encuentra el directorio nuevo y la recarga sigue, sin aviso porque no hay nada
-  que avisar.
-- **Un symlink reapuntado por encima del directorio** (`current -> releases/v2`) deja la
-  recarga en el de antes, en todas las plataformas: lo que se vigila es lo que resolvía la ruta
-  al arrancar. El `LoadError::Watch` llega con el siguiente evento de ese directorio, al tocar
-  algo en él o al borrarlo; en macOS, borrar la release entera con la config en un subdirectorio
-  no genera ninguno. Para esos despliegues, `poll_file`.
+- **A rejected reload keeps the previous snapshot in effect**: the file says one thing and the
+  service does another. Record it with `Watcher::on_reject`; otherwise it only reaches the
+  library's log, and a per-crate filter drops it (see [Observability](#observability)).
+- **Save it atomically** (temp file + rename, like editors and `ConfigMap`s do): an in-place
+  write can be read half-done. While running, that is a rejection that reaches `on_reject` and
+  fixes itself when the write finishes; at startup, a failing `watch_file`. On Windows, the
+  rename in `File.Move` (.NET), `os.replace` (Python) and `move` (cmd) fails with access denied
+  if another process has the file open at that instant, even just to read it: the reload
+  itself, or `poll_file` on every round. Retry, or use a rename with POSIX semantics (Rust's
+  `std::fs::rename`). `Move-Item -Force` does not fail, but it is not atomic: it deletes and
+  then moves.
+- **Keep the file alone in its directory**: any change next to it rereads it, and `poll_file`
+  hashes everything in it on every round.
+- **Docker: mount the directory, not the file.** With a single-file bind mount, on Docker
+  Desktop for Mac `watch_file` sees no change from the host, not even an in-place write; on a
+  Linux host, an atomic save creates a new inode and the container keeps the old one forever,
+  even when polling. With the directory mounted, on Docker Desktop for Mac (VirtioFS) events do
+  cross: `watch_file` reloads, and only the file's deletion is lost, which does not reach
+  `on_reject`. On Docker Desktop for Windows they do not cross: there, `Flags::poll_file`.
+- **Do not replace the directory** (Linux, Windows). If a deployment deletes it and creates it
+  again (`rm -rf` and copy, an `rsync --delete` of the parent), `watch_file` keeps watching the
+  one that no longer exists and stops seeing changes. With a deployment's immediate recreation
+  there is not even a rejection: the new file is applied and what is lost is the next edit.
+  That is why, as soon as it happens, a `LoadError::Watch` reaches `on_reject`, **except on
+  Windows if it is renamed** (`mv conf conf.old` and another in its place): the system follows
+  the rename silently, and no notice arrives. There, `poll_file`, which finds it again. A
+  `ConfigMap` does not have the problem: it swaps a symlink inside a directory that stays
+  alive. Neither does macOS: FSEvents watches the path, finds the new directory and reloading
+  continues, with no notice because there is nothing to report.
+- **A symlink repointed above the directory** (`current -> releases/v2`) leaves reloading on
+  the old one, on every platform: what is watched is what the path resolved to at startup. The
+  `LoadError::Watch` arrives with that directory's next event, when something in it is touched
+  or it is deleted; on macOS, deleting the whole release with the config in a subdirectory
+  generates none. For those deployments, `poll_file`.
 
-Cada réplica recarga por su cuenta y durante la propagación pueden diferir: el listado (`GET`) es
-informativo y el `require` de la operación (`POST`), la autoridad. `revision()` es un contador por
-proceso: no sirve para comparar réplicas. Para eso, `Snapshot::toml()` devuelve el TOML aplicado
-tal cual, y un health check puede usarlo de dos formas:
+Each replica reloads on its own and they may differ while the change propagates: the listing
+(`GET`) is informational and the operation's `require` (`POST`) is the authority. `revision()`
+is a per-process counter: it is no use for comparing replicas. For that, `Snapshot::toml()`
+returns the applied TOML verbatim, and a health check can use it in two ways:
 
-- **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se aplicó.
-  Cubre también un evento que nunca llegó (Docker Desktop para Windows con `watch_file`, un
-  directorio renombrado en Windows, un symlink reapuntado hasta que cambie el directorio de
-  antes), que no llega a `on_reject` porque no hay nada que rechazar.
-  Tolera unos cientos de milisegundos de diferencia: es lo que tarda en recargar. **No cubre el
-  bind mount de un solo archivo en un host Linux**: el disco que ve el contenedor es el mismo
-  inodo viejo, así que coincide con `toml()` aunque el host ya tenga otro.
-- **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el del
-  archivo desplegado, calculado fuera del contenedor. Es la comprobación que detecta también el
-  caso anterior. Con SHA-256 es el mismo valor que `sha256sum flags.toml`; el algoritmo lo pone
-  la app, no esta librería.
+- **Stale replica**: a file on disk that differs from `toml()` is a reload that was not
+  applied. It also covers an event that never arrived (Docker Desktop for Windows with
+  `watch_file`, a directory renamed on Windows, a symlink repointed until the old directory
+  changes), which does not reach `on_reject` because there is nothing to reject. Tolerate a
+  difference of a few hundred milliseconds: that is how long reloading takes. **It does not
+  cover a single-file bind mount on a Linux host**: the disk the container sees is the same old
+  inode, so it matches `toml()` even though the host already has another.
+- **Matching replicas**: a hash of `toml()` in the health check, compared with that of the
+  deployed file, computed outside the container. This is the check that also detects the
+  previous case. With SHA-256 it is the same value as `sha256sum flags.toml`; the algorithm is
+  the app's choice, not this library's.
 
-## Observabilidad
+## Observability
 
-`on_change` recibe un `Diff` por cada recarga aplicada, en orden de revisión: keys añadidas,
-quitadas, con otro estado efectivo (`changed`) o con otro motivo (`reason_changed`). Los cambios
-de `meta` no entran. Una recarga sin cambios visibles (un comentario) también avisa, con las
-listas vacías.
+`on_change` receives a `Diff` for each applied reload, in revision order: keys added, removed,
+with a different effective state (`changed`) or with a different cause (`reason_changed`).
+Changes to `meta` are not included. A reload with no visible changes (a comment) also notifies,
+with empty lists.
 
-La librería emite estos eventos de `tracing`:
+The library emits these `tracing` events:
 
-| Evento | Target | Nivel |
+| Event | Target | Level |
 |---|---|---|
-| Recarga aplicada, con su revisión | `breaker_panel::flags` | `info` |
-| Recarga rechazada, con la cadena de causas (línea y columna si el TOML no parsea) | `breaker_panel::watch` | `warn` |
-| La vigilancia con eventos se paró: el directorio se borró o se recreó (también llega a `on_reject`) | `breaker_panel::watch` | `warn` |
-| `poll_file` con un intervalo de menos de 100 ms, que se sube a 100 | `breaker_panel::watch` | `warn` |
-| Un callback de `on_change` u `on_reject` entró en pánico | `breaker_panel::flags` | `error` |
-| `require` denegado: **uno por llamada**, así que bajo carga con un switch apagado es una línea por petición | `breaker_panel::snapshot` | `debug` |
+| Reload applied, with its revision | `breaker_panel::flags` | `info` |
+| Reload rejected, with the chain of causes (line and column if the TOML does not parse) | `breaker_panel::watch` | `warn` |
+| Event-based watching stopped: the directory was deleted or recreated (also sent to `on_reject`) | `breaker_panel::watch` | `warn` |
+| `poll_file` with an interval under 100 ms, which is raised to 100 | `breaker_panel::watch` | `warn` |
+| An `on_change` or `on_reject` callback panicked | `breaker_panel::flags` | `error` |
+| `require` denied: **one per call**, so under load with a switch off it is one line per request | `breaker_panel::snapshot` | `debug` |
 
-Si tu filtro es por crate (`EnvFilter` con `mi_app=info`), añade `breaker_panel=info` o usa
-`on_reject`. Para registrar un `LoadError` completo, `{:#}`: su `Display` a secas solo da el
-primer nivel.
+If your filter is per crate (`EnvFilter` with `my_app=info`), add `breaker_panel=info` or use
+`on_reject`. To log a full `LoadError`, use `{:#}`: its plain `Display` only gives the top
+level.
 
-## Keys registradas (feature `registry`)
+## Registered keys (`registry` feature)
 
 ```rust,standalone_crate
 use breaker_panel::{Flags, flag_key};
@@ -212,22 +212,38 @@ flags.require(CHARGE)?;
 # }
 ```
 
-Toda key declarada con `flag_key!` tiene que estar en el archivo: si falta, falla el arranque, y
-una recarga que la quite se rechaza. Una key mal formada (`"payments.Methods"`) ni siquiera
-compila. Las keys dinámicas (`format!`) no se validan al arrancar: si no existen, dan `Unknown`
-en runtime.
+Every key declared with `flag_key!` has to be in the file: if it is missing, startup fails, and
+a reload that removes it is rejected. A malformed key (`"payments.Methods"`) does not even
+compile. Dynamic keys (`format!`) are not validated at startup: if they do not exist, they give
+`Unknown` at runtime.
 
-El registro lo arma el linker por binario: es el único estado global del crate, y es de solo
-lectura. Consecuencia en tus tests: todo TOML que carguen tiene que traer las keys registradas en
-ese binario.
+The linker builds the registry per binary: it is the crate's only global state, and it is
+read-only. Consequence for your tests: every TOML they load has to include the keys registered
+in that binary.
 
-## Cuándo usar esto y cuándo no
+## When to use this and when not to
 
-- **flagd en modo archivo** (`open-feature-flagd`) evalúa en local, recarga el archivo y trae
-  targeting con JSONLogic y rollouts por porcentaje. Si necesitas eso, úsalo.
-- **LaunchDarkly, Unleash**: si necesitas el plano de control —UI, auditoría, permisos,
-  analítica—.
-- **breaker-panel**: si lo que quieres es jerarquía con cascada y `disabled_by`, keys validadas
-  al arrancar, una API mínima sin estado que se escriba en runtime y un archivo TOML revisado
-  por PR. La auditoría,
-  el versionado y el rollback son los de Git; `on_change` avisa de cada cambio aplicado.
+- **flagd in file mode** (`open-feature-flagd`) evaluates locally, reloads the file and brings
+  targeting with JSONLogic and percentage rollouts. If you need that, use it.
+- **LaunchDarkly, Unleash**: if you need the control plane —UI, auditing, permissions,
+  analytics.
+- **breaker-panel**: if what you want is a hierarchy with cascading and `disabled_by`, keys
+  validated at startup, a minimal API with no state written at runtime, and a TOML file reviewed
+  through PRs. Auditing, versioning and rollback are Git's; `on_change` notifies every applied
+  change.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
+
+at your option.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
+the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without
+any additional terms or conditions.

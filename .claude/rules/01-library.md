@@ -58,6 +58,11 @@ una librería le quita al consumidor la forma de configurarla y a los tests la d
   pudrirse en silencio. Si algo se ilustra sin poder ejecutarse, va en un bloque ```` ```text ````
   — no compila, y no miente sobre estar verificado.
 - La primera línea del `//!` de `lib.rs` dice qué hace el crate: es el resumen en docs.rs.
+- **Idioma**: inglés en todo lo que ve quien usa el crate —`///`, `//!`, README, `examples/`,
+  los mensajes (`Display`, `tracing`, pánicos, el error de compilación de `flag_key!`) y los
+  comentarios del código de producción, que docs.rs enseña en la vista de fuente—. En español,
+  los tests, los commits y la documentación del repo (`CLAUDE.md`, `.claude/`, `docs/`). El
+  `Display` de un error es casi contrato: hay quien compara su `to_string()`, como el README.
 
 ## Reglas de código
 

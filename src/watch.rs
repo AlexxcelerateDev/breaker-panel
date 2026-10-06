@@ -21,45 +21,45 @@ use crate::{
     flags::{Listeners, call_all, lock, subscribe},
 };
 
-/// Un guardado de editor (temp + rename) llega como varios eventos: se recarga una vez, cuando
-/// dejan de llegar durante este tiempo.
+/// An editor save (temp + rename) arrives as several events: it reloads once, when they stop
+/// arriving for this long.
 const DEBOUNCE: Duration = Duration::from_millis(200);
 
-/// El intervalo mínimo de [`Flags::poll_file`]: en cada vuelta lee y hashea todo el directorio.
+/// The minimum interval of [`Flags::poll_file`]: each round reads and hashes the whole directory.
 const MIN_POLL: Duration = Duration::from_millis(100);
 
-/// [`Source::reload`] sin el tipo de `M`, para que `Watcher` no sea genérico.
+/// [`Source::reload`] without the `M` type, so that `Watcher` is not generic.
 type Reload = Arc<dyn Fn(bool) -> Result<(), LoadError> + Send + Sync>;
 
-/// Vigila un archivo de flags. Soltarlo deja de vigilar; los [`Flags`] siguen con el último
-/// snapshot aplicado.
+/// Watches a flags file. Dropping it stops watching; the [`Flags`] keep the last applied
+/// snapshot.
 ///
-/// Ojo con `let (flags, _) = Flags::watch_file(..)`: el patrón `_` lo suelta en el acto y el
-/// archivo deja de vigilarse sin que nada avise. Va en una variable con nombre (`_watcher`
-/// también vale) o en el estado de la app, junto a los flags.
+/// Beware of `let (flags, _) = Flags::watch_file(..)`: the `_` pattern drops it on the spot and
+/// the file stops being watched with nothing warning you. Bind it to a named variable
+/// (`_watcher` works too) or keep it in the app state, next to the flags.
 pub struct Watcher {
     reload: Reload,
     rejects: Arc<Listeners<LoadError>>,
-    // Solo se mantiene vivo, nunca se usa: el `Mutex` es para que `Watcher` sea `Sync` (el
-    // estado de axum lo exige) sin depender de que el debouncer de cada plataforma lo sea.
+    // Only kept alive, never used: the `Mutex` makes `Watcher` `Sync` (axum's state requires it)
+    // without depending on each platform's debouncer being so.
     _debouncer: Mutex<Box<dyn Send>>,
 }
 
 impl Watcher {
-    /// Relee el archivo y lo aplica aunque no haya cambiado: para un SIGHUP o un endpoint admin.
-    /// Cada llamada es una revisión nueva y un `on_change` con las listas vacías: un endpoint que
-    /// la exponga no debería poder llamarse en bucle.
+    /// Rereads the file and applies it even if it has not changed: for a SIGHUP or an admin
+    /// endpoint. Each call is a new revision and an `on_change` with empty lists: an endpoint
+    /// that exposes it should not be callable in a loop.
     ///
     /// # Errors
     ///
-    /// [`LoadError::Io`] si no se puede leer, y los de [`Snapshot::from_toml_str`]. En los dos
-    /// casos sigue vigente el snapshot anterior y no se dispara `on_change`. Un rechazo ya
-    /// avisado (el mismo contenido inválido, el archivo que sigue sin poder leerse) se devuelve
-    /// aquí, pero no vuelve a llegar a [`on_reject`](Self::on_reject).
+    /// [`LoadError::Io`] if it cannot be read, and those of [`Snapshot::from_toml_str`]. In both
+    /// cases the previous snapshot stays in effect and `on_change` is not triggered. A rejection
+    /// already reported (the same invalid content, the file that still cannot be read) is
+    /// returned here, but does not reach [`on_reject`](Self::on_reject) again.
     ///
     /// # Panics
     ///
-    /// Si se llama desde un callback de `on_change` de estos flags: se esperaría a sí mismo.
+    /// If called from an `on_change` callback of these flags: it would wait for itself.
     ///
     /// # Examples
     ///
@@ -67,7 +67,7 @@ impl Watcher {
     /// use breaker_panel::Flags;
     ///
     /// let (flags, watcher) = Flags::<()>::watch_file("flags.toml")?;
-    /// // Al recibir SIGHUP:
+    /// // On SIGHUP:
     /// watcher.reload()?;
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
@@ -75,26 +75,26 @@ impl Watcher {
         (self.reload)(true)
     }
 
-    /// Registra un callback que recibe el error de cada recarga rechazada, la del watcher y la
-    /// de [`reload`](Self::reload): un archivo roto, borrado o sin una key registrada.
+    /// Registers a callback that receives the error of each rejected reload, both the watcher's
+    /// and [`reload`](Self::reload)'s: a broken or deleted file, or one missing a registered key.
     ///
-    /// Cada rechazo llega una vez: el mismo contenido inválido, o el archivo que sigue sin poder
-    /// leerse, no vuelve a avisar hasta que cambie. Por eso un callback que llame a `reload` no
-    /// entra en bucle.
+    /// Each rejection arrives once: the same invalid content, or the file that still cannot be
+    /// read, is not reported again until it changes. That is why a callback that calls `reload`
+    /// does not loop.
     ///
-    /// Con [`Flags::watch_file`] llega también, una vez, un [`LoadError::Watch`] si la ruta deja
-    /// de llevar al directorio vigilado: se borra o se recrea (en Linux y Windows: en macOS la
-    /// recarga sigue), o se reapunta un symlink por encima. Ese no es un rechazo: lo aplicado
-    /// puede ser ya el archivo nuevo, y lo que se pierde es la recarga de los siguientes. Por eso
-    /// el ejemplo no dice "sigue el anterior".
+    /// With [`Flags::watch_file`] a [`LoadError::Watch`] also arrives, once, if the path stops
+    /// leading to the watched directory: it is deleted or recreated (on Linux and Windows: on
+    /// macOS reloading continues), or a symlink above it is repointed. That one is not a
+    /// rejection: what was applied may already be the new file, and what is lost is reloading
+    /// the next ones. That is why the example does not say "keeping the previous one".
     ///
-    /// Un rechazo deja vigente el snapshot anterior, así que **sin esto solo se ve en el log de
-    /// la librería** (target `breaker_panel::watch`), que un filtro por crate descarta: el
-    /// archivo dice una cosa y el servicio hace otra, sin que nadie lo sepa. Aquí se puede
-    /// registrar con el target propio, contar una métrica o marcar un health check.
+    /// A rejection keeps the previous snapshot in effect, so **without this it only shows up in
+    /// the library's log** (target `breaker_panel::watch`), which a per-crate filter drops: the
+    /// file says one thing and the service does another, without anyone knowing. Here you can log
+    /// it with your own target, count a metric or flag a health check.
     ///
-    /// Corre en el hilo que intentó la recarga; como los de `on_change`, un pánico se registra y
-    /// no afecta a los demás.
+    /// It runs on the thread that attempted the reload; as with `on_change`, a panic is logged
+    /// and does not affect the others.
     ///
     /// # Examples
     ///
@@ -102,7 +102,7 @@ impl Watcher {
     /// use breaker_panel::Flags;
     ///
     /// let (flags, watcher) = Flags::<()>::watch_file("flags.toml")?;
-    /// // `{:#}` incluye la causa: la línea y la columna si el TOML no parsea.
+    /// // `{:#}` includes the cause: the line and column if the TOML does not parse.
     /// watcher.on_reject(|e| eprintln!("flags.toml: {e:#}"));
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
@@ -118,45 +118,45 @@ impl fmt::Debug for Watcher {
 }
 
 impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
-    /// Carga los flags de un archivo y lo recarga en caliente cuando cambia.
+    /// Loads the flags from a file and hot-reloads it when it changes.
     ///
-    /// Vigila el directorio del archivo, no el archivo: así ve los guardados atómicos de los
-    /// editores (temp + rename) y el cambio de symlink de un `ConfigMap` de Kubernetes. Por eso
-    /// conviene que el archivo esté solo en su directorio: cualquier cambio a su lado lo relee.
-    /// En Docker, monta el directorio: con un bind mount de un solo archivo no llega ningún
-    /// evento del host en Docker Desktop para Mac, y en un host Linux un guardado atómico deja al
-    /// contenedor con el inodo viejo para siempre.
+    /// It watches the file's directory, not the file: that way it sees editors' atomic saves
+    /// (temp + rename) and the symlink swap of a Kubernetes `ConfigMap`. That is why the file is
+    /// best kept alone in its directory: any change next to it rereads it. In Docker, mount the
+    /// directory: with a single-file bind mount no host event arrives on Docker Desktop for Mac,
+    /// and on a Linux host an atomic save leaves the container with the old inode forever.
     ///
-    /// En Linux y Windows el directorio tiene que ser siempre el mismo. Si un despliegue lo
-    /// borra y lo crea de nuevo (`rm -rf` y copiar, un `rsync --delete` del padre), el sistema
-    /// sigue vigilando el que ya no existe y deja de ver cambios. Con la recreación inmediata de
-    /// un despliegue ni siquiera hay rechazo: se aplica el archivo nuevo y lo que se pierde es
-    /// la edición siguiente. Por eso, en cuanto pasa, llega a [`Watcher::on_reject`] un
-    /// [`LoadError::Watch`]. **Salvo en Windows si se renombra** (`mv conf conf.viejo` y otro
-    /// en su lugar): el sistema sigue al renombrado sin decir nada, y no llega ningún aviso.
-    /// Para esos despliegues está [`poll_file`](Self::poll_file), que vuelve a encontrarlo. En
-    /// macOS no pasa: FSEvents vigila la ruta, encuentra el directorio nuevo y la recarga sigue.
+    /// On Linux and Windows the directory has to stay the same. If a deployment deletes it and
+    /// creates it again (`rm -rf` and copy, an `rsync --delete` of the parent), the system keeps
+    /// watching the one that no longer exists and stops seeing changes. With a deployment's
+    /// immediate recreation there is not even a rejection: the new file is applied and what is
+    /// lost is the next edit. That is why, as soon as it happens, a [`LoadError::Watch`] reaches
+    /// [`Watcher::on_reject`]. **Except on Windows if it is renamed** (`mv conf conf.old` and
+    /// another in its place): the system follows the rename silently, and no notice arrives. For
+    /// those deployments there is [`poll_file`](Self::poll_file), which finds it again. On macOS
+    /// it does not happen: FSEvents watches the path, finds the new directory and reloading
+    /// continues.
     ///
-    /// En todas, el directorio es el que resuelve la ruta al arrancar: si un symlink por encima
-    /// se reapunta (`current -> releases/v2`), la recarga sigue en el de antes. El
-    /// [`LoadError::Watch`] llega con el siguiente evento de ese directorio, al tocar algo en él o
-    /// al borrarlo; en macOS, borrar la release entera con la config en un subdirectorio no
-    /// genera ninguno. Ahí también, `poll_file`.
+    /// On all of them, the directory is the one the path resolves to at startup: if a symlink
+    /// above it is repointed (`current -> releases/v2`), reloading stays on the old one. The
+    /// [`LoadError::Watch`] arrives with that directory's next event, when something in it is
+    /// touched or it is deleted; on macOS, deleting the whole release with the config in a
+    /// subdirectory generates none. There too, `poll_file`.
     ///
-    /// Una recarga que falla deja vigente el snapshot anterior, se registra con `tracing` y
-    /// llega a [`Watcher::on_reject`]. El watcher corre en su propio hilo y no necesita runtime
-    /// async.
+    /// A failed reload keeps the previous snapshot in effect, is logged with `tracing` and
+    /// reaches [`Watcher::on_reject`]. The watcher runs on its own thread and needs no async
+    /// runtime.
     ///
-    /// La recarga dura lo que viva el [`Watcher`] devuelto: no lo sueltes con `_`.
+    /// Reloading lasts as long as the returned [`Watcher`] lives: do not drop it with `_`.
     ///
     /// # Errors
     ///
-    /// Al arrancar no hay valores por defecto: [`LoadError::Io`] si el archivo no se puede leer,
-    /// los de [`Snapshot::from_toml_str`] si no es válido, y [`LoadError::Watch`] si el sistema
-    /// no deja vigilar el directorio. Un cambio entre la primera lectura y el `watch` no
-    /// generaría evento, así que se relee una vez al empezar a vigilar: si para entonces el
-    /// archivo ya no es válido o no está, también falla. Con una escritura en el sitio (no
-    /// atómica) a la vez que el arranque, cualquiera de las dos lecturas puede pillarlo a medias.
+    /// At startup there are no defaults: [`LoadError::Io`] if the file cannot be read, those of
+    /// [`Snapshot::from_toml_str`] if it is not valid, and [`LoadError::Watch`] if the system
+    /// does not allow watching the directory. A change between the first read and the `watch`
+    /// would generate no event, so it rereads once when it starts watching: if by then the file
+    /// is no longer valid or is gone, it also fails. With an in-place (non-atomic) write at the
+    /// same time as startup, either of the two reads can catch it half-written.
     ///
     /// # Examples
     ///
@@ -171,18 +171,18 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
         start::<M, RecommendedWatcher>(path.as_ref(), notify::Config::default())
     }
 
-    /// Como [`watch_file`](Self::watch_file), pero mirando el archivo cada `interval` en vez de
-    /// esperar eventos del sistema: para los bind mounts de Docker Desktop para Windows, que no
-    /// los propagan (en Mac sí, si se monta el directorio).
+    /// Like [`watch_file`](Self::watch_file), but checking the file every `interval` instead of
+    /// waiting for system events: for Docker Desktop for Windows bind mounts, which do not
+    /// propagate them (on Mac they do, if the directory is mounted).
     ///
-    /// En cada vuelta lee y hashea los archivos del directorio: el mtime que compara `notify`
-    /// tiene resolución de segundos, y sin mirar el contenido se perdería un cambio que caiga en
-    /// el mismo segundo que el anterior. Por eso un `interval` de menos de 100 ms se sube a
-    /// 100 ms: con cero, sondear ocupaba un núcleo entero.
+    /// Each round reads and hashes the directory's files: the mtime `notify` compares has
+    /// one-second resolution, and without looking at the content a change landing in the same
+    /// second as the previous one would be missed. That is why an `interval` under 100 ms is
+    /// raised to 100 ms: with zero, polling took up a whole core.
     ///
     /// # Errors
     ///
-    /// Los de [`watch_file`](Self::watch_file).
+    /// Those of [`watch_file`](Self::watch_file).
     ///
     /// # Examples
     ///
@@ -198,8 +198,8 @@ impl<M: DeserializeOwned + Default + Send + Sync + 'static> Flags<M> {
         interval: Duration,
     ) -> Result<(Arc<Self>, Watcher), LoadError> {
         if interval < MIN_POLL {
-            // Que se note: quien pidió 1 ms cree que sondea cada milisegundo.
-            tracing::warn!(?interval, min = ?MIN_POLL, "intervalo de sondeo subido al mínimo");
+            // Make it visible: whoever asked for 1 ms believes it polls every millisecond.
+            tracing::warn!(?interval, min = ?MIN_POLL, "poll interval raised to the minimum");
         }
         let config = notify::Config::default()
             .with_poll_interval(interval.max(MIN_POLL))
@@ -213,8 +213,8 @@ where
     M: DeserializeOwned + Default + Send + Sync + 'static,
     W: notify::Watcher + Send + 'static,
 {
-    // `notify` vigila el directorio resuelto al arrancar, pero una ruta relativa se volvería a
-    // resolver en cada recarga contra el `cwd` de ese momento, y leería otro archivo.
+    // `notify` watches the directory resolved at startup, but a relative path would be resolved
+    // again on each reload against the `cwd` of that moment, and would read another file.
     let path = &path::absolute(path).map_err(|source| LoadError::Io {
         path: path.to_owned(),
         source,
@@ -224,29 +224,28 @@ where
     let anchor = Anchor::of::<W>(dir(path));
     let source = Arc::new(Source::new(Arc::clone(&flags), path, text, anchor));
     let debouncer = debounce::<W>(path, config, source.event_handler())?;
-    // Un cambio entre la lectura y el `watch` no genera evento: se relee una vez. Si ya no es
-    // válido, el arranque falla, como si la primera lectura lo hubiera encontrado así (§7): aún
-    // no hay `on_reject` al que avisar, y aceptarlo dejaría la réplica atrasada sin decirlo.
+    // A change between the read and the `watch` generates no event: reread once. If it is no
+    // longer valid, startup fails, as if the first read had found it that way: there is no
+    // `on_reject` to notify yet, and accepting it would leave the replica stale without saying so.
     source.apply(false).map_err(|rejection| rejection.error)?;
     Ok((flags, Watcher::new(&source, debouncer)))
 }
 
-/// Lo que vigila de verdad el backend, para saber si la ruta sigue llevando a ello (ver
-/// [`Source::check_dir`]). Se decide por el backend y no por `target_os`: la feature
-/// `macos_kqueue` de `notify`, que puede encender cualquier crate del grafo, cambia FSEvents por
-/// kqueue.
+/// What the backend actually watches, to know whether the path still leads to it (see
+/// [`Source::check_dir`]). It is decided by the backend and not by `target_os`: `notify`'s
+/// `macos_kqueue` feature, which any crate in the graph can turn on, swaps FSEvents for kqueue.
 enum Anchor {
-    /// inotify, kqueue y Windows siguen al directorio del arranque aunque lo borren y lo creen de
-    /// nuevo, y entonces dejan de ver cambios.
+    /// inotify, kqueue and Windows follow the startup directory even if it is deleted and
+    /// created again, and then stop seeing changes.
     Identity(FileId),
-    /// FSEvents sigue la ruta resuelta al arrancar: encuentra un directorio recreado en ella, y
-    /// compararlo por identificador daría un aviso falso; pero no sigue un symlink reapuntado por
-    /// encima.
+    /// FSEvents follows the path resolved at startup: it finds a directory recreated at it, and
+    /// comparing by identifier would give a false alarm; but it does not follow a symlink
+    /// repointed above it.
     Resolved(PathBuf),
 }
 
 impl Anchor {
-    /// `None` con el sondeo, que recorre la ruta en cada vuelta y no tiene nada que perder.
+    /// `None` with polling, which walks the path on every round and has nothing to lose.
     fn of<W: notify::Watcher>(dir: &Path) -> Option<Self> {
         match W::kind() {
             WatcherKind::PollWatcher => None,
@@ -255,20 +254,20 @@ impl Anchor {
         }
     }
 
-    /// Si `dir` sigue llevando a lo que vigila el backend.
+    /// Whether `dir` still leads to what the backend watches.
     fn holds(&self, dir: &Path, events: &[DebouncedEvent]) -> bool {
         match self {
-            // Hacen falta las dos señales: Linux reutiliza para el directorio nuevo el inodo del
-            // borrado (el identificador no cambia), pero manda el borrado del propio directorio;
-            // Windows no lo manda, pero el identificador sí cambia.
+            // Both signals are needed: Linux reuses the deleted directory's inode for the new one
+            // (the identifier does not change), but sends the removal of the directory itself;
+            // Windows does not send it, but the identifier does change.
             Self::Identity(was) => {
                 let removed = events
                     .iter()
                     .any(|e| e.kind.is_remove() && e.paths.iter().any(|p| p == dir));
                 !removed && file_id::get_file_id(dir).is_ok_and(|now| now == *was)
             }
-            // Sin directorio no se avisa: si se recrea en la misma ruta, FSEvents lo encuentra, y
-            // mientras tanto la lectura falla y llega como rechazo.
+            // No directory, no notice: if it is recreated at the same path, FSEvents finds it,
+            // and meanwhile the read fails and arrives as a rejection.
             Self::Resolved(was) => fs::canonicalize(dir).map_or(true, |now| now == *was),
         }
     }
@@ -287,24 +286,24 @@ impl Watcher {
     }
 }
 
-/// Lo que necesita una recarga: a quién aplicarla, de dónde leer y a quién avisar si falla.
+/// What a reload needs: whom to apply it to, where to read from and whom to notify if it fails.
 struct Source<M> {
     flags: Arc<Flags<M>>,
     path: PathBuf,
     seen: Mutex<Seen>,
     rejects: Arc<Listeners<LoadError>>,
-    /// Lo que vigila el backend; `None` con el sondeo.
+    /// What the backend watches; `None` with polling.
     anchor: Option<Anchor>,
-    /// Si ya se avisó de que dejó de ser el mismo: se avisa una vez.
+    /// Whether it was already reported that it stopped being the same: reported once.
     dir_lost: AtomicBool,
 }
 
-/// Lo que se manda a `on_reject` cuando el directorio vigilado deja de ser el del arranque.
-const DIR_LOST: &str = "la ruta ya no lleva al directorio vigilado (se borró, se recreó o se \
-                        reapuntó un symlink): la recarga con eventos ya no ve cambios; usa \
-                        poll_file o reinicia";
+/// What is sent to `on_reject` when the watched directory stops being the startup one.
+const DIR_LOST: &str = "the path no longer leads to the watched directory (it was deleted, \
+                        recreated, or a symlink above it was repointed): event-based reloading \
+                        no longer sees changes; use poll_file or restart";
 
-/// Lo último que se leyó del archivo, se aplicara o no.
+/// The last thing read from the file, whether it was applied or not.
 #[derive(PartialEq)]
 enum Seen {
     Text(String),
@@ -320,9 +319,9 @@ impl Seen {
     }
 }
 
-/// Un rechazo, y si es nuevo. Uno repetido (el mismo contenido inválido, el archivo que sigue
-/// sin poder leerse) no se registra ni se avisa otra vez: si no, cualquier evento del directorio
-/// lo repetiría, y un `on_reject` que llamase a `reload` entraría en recursión sin fin.
+/// A rejection, and whether it is new. A repeated one (the same invalid content, the file that
+/// still cannot be read) is not logged or reported again: otherwise any directory event would
+/// repeat it, and an `on_reject` that called `reload` would recurse forever.
 struct Rejection {
     error: LoadError,
     new: bool,
@@ -340,7 +339,7 @@ impl<M: DeserializeOwned + Default> Source<M> {
         }
     }
 
-    /// Lo que hace el debouncer con cada lote de eventos.
+    /// What the debouncer does with each batch of events.
     fn event_handler(self: &Arc<Self>) -> impl FnMut(DebounceEventResult) + Send + 'static
     where
         M: Send + Sync + 'static,
@@ -352,24 +351,24 @@ impl<M: DeserializeOwned + Default> Source<M> {
     fn on_events(&self, result: DebounceEventResult) {
         match result {
             Ok(events) => {
-                // Los accesos se ignoran: en Linux leer el archivo ya genera uno, y recargar por
-                // ellos sería un bucle. El error ya lo registra el propio `reload`.
+                // Accesses are ignored: on Linux reading the file already generates one, and
+                // reloading on them would be a loop. `reload` itself already logs the error.
                 if events.iter().any(|e| !e.kind.is_access()) {
                     let _ = self.reload(false);
                 }
                 self.check_dir(&events);
             }
             Err(errors) => {
-                tracing::warn!(?errors, "error vigilando el archivo de flags");
+                tracing::warn!(?errors, "error watching the flags file");
                 self.check_dir(&[]);
             }
         }
     }
 
-    /// Si la ruta deja de llevar a lo que vigila el backend (ver [`Anchor`]), la recarga con
-    /// eventos ha muerto, y en silencio. Con la recreación inmediata de un despliegue ni siquiera
-    /// queda un rechazo, porque la última recarga que dispara el directorio viejo ya lee el
-    /// archivo nuevo. Por eso se mira tras cada lote de eventos, y se avisa una vez.
+    /// If the path stops leading to what the backend watches (see [`Anchor`]), event-based
+    /// reloading is dead, and silently. With a deployment's immediate recreation not even a
+    /// rejection is left, because the last reload the old directory triggers already reads the
+    /// new file. That is why it is checked after every batch of events, and reported once.
     fn check_dir(&self, events: &[DebouncedEvent]) {
         let Some(anchor) = &self.anchor else { return };
         let dir = dir(&self.path);
@@ -383,14 +382,11 @@ impl<M: DeserializeOwned + Default> Source<M> {
             path: dir.to_owned(),
             source: io::Error::other(DIR_LOST),
         };
-        tracing::warn!(
-            error = format!("{error:#}"),
-            "la recarga en caliente se ha parado"
-        );
+        tracing::warn!(error = format!("{error:#}"), "hot reloading has stopped");
         call_all(&self.rejects, &error, "on_reject");
     }
 
-    /// La recarga forzada del [`Watcher`].
+    /// The [`Watcher`]'s forced reload.
     fn reloader(self: &Arc<Self>) -> Reload
     where
         M: Send + Sync + 'static,
@@ -399,29 +395,29 @@ impl<M: DeserializeOwned + Default> Source<M> {
         Arc::new(move |force| source.reload(force))
     }
 
-    /// `force = false` es un evento del watcher: no aplica nada si el archivo no cambió.
+    /// `force = false` is a watcher event: it applies nothing if the file did not change.
     fn reload(&self, force: bool) -> Result<(), LoadError> {
         self.flags.forbid_reentry();
         self.apply(force).map_err(|Rejection { error, new }| {
             if new {
-                // `{:#}` y no el error como campo: el formateador JSON de `tracing-subscriber`
-                // no pinta `source()`, y se perderían la línea y la columna.
+                // `{:#}` and not the error as a field: `tracing-subscriber`'s JSON formatter does
+                // not print `source()`, and the line and column would be lost.
                 let message = format!("{error:#}");
                 let path = self.path.display();
-                tracing::warn!(%path, error = message, "recarga de flags rechazada");
+                tracing::warn!(%path, error = message, "flags reload rejected");
                 call_all(&self.rejects, &error, "on_reject");
             }
             error
         })
     }
 
-    /// El directorio padre avisa también de cambios en otros archivos, y el symlink de
-    /// Kubernetes cambia sin que el archivo aparezca en el evento: por eso se compara el
-    /// contenido en vez de filtrar por path.
+    /// The parent directory also reports changes to other files, and the Kubernetes symlink
+    /// changes without the file appearing in the event: that is why the content is compared
+    /// instead of filtering by path.
     fn apply(&self, force: bool) -> Result<(), Rejection> {
-        // Leer y aplicar con `seen` tomado, `replace` incluido, a propósito: si no, dos recargas
-        // (la del watcher y un `reload` manual) podrían aplicarse al revés, y el snapshot vigente
-        // sería el viejo con `seen` diciendo que ya se aplicó el nuevo.
+        // Read and apply with `seen` held, `replace` included, on purpose: otherwise two reloads
+        // (the watcher's and a manual `reload`) could be applied in reverse order, and the
+        // current snapshot would be the old one with `seen` saying the new one was applied.
         let mut seen = lock(&self.seen);
         let read = fs::read_to_string(&self.path);
         let now = Seen::of(&read);
@@ -468,8 +464,8 @@ fn read(path: &Path) -> Result<String, LoadError> {
     })
 }
 
-/// El directorio que se vigila. La ruta ya es absoluta (`start`): solo la raíz no tiene padre,
-/// y no se puede leer.
+/// The watched directory. The path is already absolute (`start`): only the root has no parent,
+/// and it cannot be read.
 fn dir(path: &Path) -> &Path {
     path.parent().unwrap_or(path)
 }

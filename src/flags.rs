@@ -10,54 +10,54 @@ use serde::de::DeserializeOwned;
 
 use crate::{FlagError, LoadError, Resolved, Snapshot};
 
-/// Callbacks registrados para un tipo de aviso: los `Diff` de `on_change`, los `LoadError` de
+/// Callbacks registered for one kind of notice: the `Diff`s of `on_change`, the `LoadError`s of
 /// `Watcher::on_reject`.
 pub(crate) type Listeners<T> = Mutex<Vec<Arc<dyn Fn(&T) + Send + Sync>>>;
 
-/// Los flags vivos: el snapshot vigente, reemplazable en caliente, y quién escucha los cambios.
+/// The live flags: the current snapshot, replaceable on the fly, and who listens for changes.
 ///
-/// Una consulta que deja pasar no toma locks ni reserva memoria: un load atómico del snapshot y
-/// un lookup. Una denegada sí reserva, para construir el [`FlagError`]. Cada instancia es
-/// independiente, así que cada test crea la suya.
+/// A query that lets the operation through takes no locks and allocates nothing: one atomic load
+/// of the snapshot and one lookup. A denied one does allocate, to build the [`FlagError`]. Each
+/// instance is independent, so each test creates its own.
 pub struct Flags<M = ()> {
     current: ArcSwap<Snapshot<M>>,
     listeners: Listeners<Diff>,
-    // Serializa cada `replace` de punta a punta, avisos incluidos: dos a la vez calcularían el
-    // diff contra la misma revisión, y los callbacks verían las revisiones desordenadas.
+    // Serializes each `replace` end to end, notices included: two at once would compute the diff
+    // against the same revision, and callbacks would see revisions out of order.
     writer: Mutex<()>,
-    // El hilo que está avisando a los `on_change`, para detectar que uno de ellos reentra.
+    // The thread notifying the `on_change` callbacks, to detect one of them re-entering.
     notifying: Mutex<Option<ThreadId>>,
 }
 
-/// Lo que cambió entre dos revisiones. Lo recibe cada callback de [`Flags::on_change`].
+/// What changed between two revisions. Each [`Flags::on_change`] callback receives it.
 ///
-/// Las listas van en orden alfabético.
+/// The lists are in alphabetical order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Diff {
-    /// Keys nuevas.
+    /// New keys.
     pub added: Vec<String>,
-    /// Keys que ya no están.
+    /// Keys that are gone.
     pub removed: Vec<String>,
-    /// Keys que siguen y cambiaron de estado efectivo (con la cascada aplicada).
+    /// Keys still present whose effective state changed (with the cascade applied).
     pub changed: Vec<String>,
-    /// Keys que siguen apagadas pero cambiaron de motivo: otro `reason` u otro `disabled_by`.
-    /// Es lo que ve el usuario final.
+    /// Keys still disabled whose cause changed: a different `reason` or a different
+    /// `disabled_by`. It is what the end user sees.
     ///
-    /// `meta` no entra en el diff: compararlo exigiría `M: PartialEq`.
+    /// `meta` is not part of the diff: comparing it would require `M: PartialEq`.
     pub reason_changed: Vec<String>,
-    /// La revisión reemplazada.
+    /// The replaced revision.
     pub previous_revision: u64,
-    /// La revisión nueva.
+    /// The new revision.
     pub revision: u64,
 }
 
 impl<M: DeserializeOwned + Default> Flags<M> {
-    /// Carga los flags desde el texto de un archivo, sin tocar disco.
+    /// Loads the flags from the text of a file, without touching the disk.
     ///
     /// # Errors
     ///
-    /// Los de [`Snapshot::from_toml_str`].
+    /// Those of [`Snapshot::from_toml_str`].
     ///
     /// # Examples
     ///
@@ -83,12 +83,12 @@ impl<M> Flags<M> {
         }
     }
 
-    /// [`Snapshot::require`] sobre el snapshot vigente.
+    /// [`Snapshot::require`] on the current snapshot.
     ///
     /// # Errors
     ///
-    /// [`FlagError::Unknown`] si la key no está declarada, y [`FlagError::Disabled`] si ella o
-    /// un ancestro está apagado.
+    /// [`FlagError::Unknown`] if the key is not declared, and [`FlagError::Disabled`] if it or an
+    /// ancestor is disabled.
     ///
     /// # Examples
     ///
@@ -98,21 +98,21 @@ impl<M> Flags<M> {
     /// let flags: Flags = Flags::from_toml_str(r#"
     ///     [flags]
     ///     "payments.methods.paypal" = { enabled = true }
-    ///     "payments.ops.charge"     = { enabled = false, reason = "cobros pausados" }
+    ///     "payments.ops.charge"     = { enabled = false, reason = "charges paused" }
     /// "#)?;
     /// let m = segment("paypal")?;
     /// assert!(flags.require(format!("payments.methods.{m}")).is_ok());
     /// assert!(flags.require("payments.ops.charge").is_err());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    // El nombre que trae quien viene de Unleash u OpenFeature: con el alias, rustdoc lo
-    // encuentra y rustc sugiere `require` (desde 1.99, por delante de nombres parecidos).
+    // The name people bring from Unleash or OpenFeature: with the alias, rustdoc finds it and
+    // rustc suggests `require` (since 1.99, ahead of similar names).
     #[doc(alias = "is_enabled")]
     pub fn require(&self, key: impl AsRef<str>) -> Result<(), FlagError> {
         self.current.load().require(key)
     }
 
-    /// El snapshot vigente, para hacer varias consultas consistentes entre sí.
+    /// The current snapshot, to make several queries that are consistent with each other.
     ///
     /// # Examples
     ///
@@ -122,30 +122,30 @@ impl<M> Flags<M> {
     /// let flags: Flags = Flags::from_toml_str(r#"
     ///     [flags]
     ///     "payments.methods.paypal" = { enabled = true }
-    ///     "payments.methods.stripe" = { enabled = false, reason = "caído" }
+    ///     "payments.methods.stripe" = { enabled = false, reason = "down" }
     /// "#)?;
     /// let snap = flags.snapshot();
-    /// let activos = snap.children("payments.methods").filter(|(_, r)| r.enabled).count();
-    /// assert_eq!(activos, 1);
+    /// let enabled = snap.children("payments.methods").filter(|(_, r)| r.enabled).count();
+    /// assert_eq!(enabled, 1);
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn snapshot(&self) -> Arc<Snapshot<M>> {
         self.current.load_full()
     }
 
-    /// Sustituye el snapshot vigente, le asigna la revisión siguiente y avisa a los callbacks de
-    /// [`on_change`](Self::on_change).
+    /// Replaces the current snapshot, assigns it the next revision and notifies the
+    /// [`on_change`](Self::on_change) callbacks.
     ///
-    /// Sirve para recargar desde otra fuente que entregue el mismo formato (un TOML guardado en
-    /// una base, o servido por un endpoint): `Snapshot` solo se construye desde TOML.
+    /// Useful for reloading from another source that serves the same format (a TOML stored in a
+    /// database, or served by an endpoint): `Snapshot` is only built from TOML.
     ///
-    /// No falla: todo `Snapshot` ya viene validado de [`Snapshot::from_toml_str`]. Vuelve cuando
-    /// todos los callbacks han terminado.
+    /// It cannot fail: every `Snapshot` comes already validated by [`Snapshot::from_toml_str`].
+    /// It returns once all callbacks have finished.
     ///
     /// # Panics
     ///
-    /// Si se llama desde un callback de `on_change` de estos mismos flags: esperaría a que
-    /// terminase el aviso en curso, que es el suyo, y se bloquearía para siempre.
+    /// If called from an `on_change` callback of these same flags: it would wait for the notice
+    /// in progress, which is its own, and block forever.
     ///
     /// # Examples
     ///
@@ -154,7 +154,7 @@ impl<M> Flags<M> {
     ///
     /// let flags: Flags = Flags::from_toml_str("[flags]\n\"payments\" = { enabled = true }")?;
     /// flags.replace(Snapshot::from_toml_str(
-    ///     "[flags]\n\"payments\" = { enabled = false, reason = \"mantenimiento\" }",
+    ///     "[flags]\n\"payments\" = { enabled = false, reason = \"maintenance\" }",
     /// )?);
     /// assert!(flags.require("payments").is_err());
     /// assert_eq!(flags.snapshot().revision(), 1);
@@ -167,21 +167,21 @@ impl<M> Flags<M> {
         next.revision = prev.revision + 1;
         let diff = Diff::new(&prev, &next);
         self.current.store(Arc::new(next));
-        tracing::info!(revision = diff.revision, "flags recargados");
+        tracing::info!(revision = diff.revision, "flags reloaded");
         self.set_notifying(Some(thread::current().id()));
         call_all(&self.listeners, &diff, "on_change");
         self.set_notifying(None);
     }
 
-    /// Un `replace` o un `Watcher::reload` desde un callback de `on_change` de estos flags se
-    /// esperaría a sí mismo: bloqueado para siempre, y en el hilo del watcher, sin que nada lo
-    /// diga. Mejor un pánico con el motivo, que `call_all` captura y registra.
+    /// A `replace` or a `Watcher::reload` from an `on_change` callback of these flags would wait
+    /// for itself: blocked forever, and on the watcher thread, with nothing saying so. Better a
+    /// panic with the reason, which `call_all` catches and logs.
     pub(crate) fn forbid_reentry(&self) {
         let notifying = *lock(&self.notifying);
         assert_ne!(
             notifying,
             Some(thread::current().id()),
-            "replace o Watcher::reload desde un callback de on_change de los mismos flags",
+            "replace or Watcher::reload called from an on_change callback of the same flags",
         );
     }
 
@@ -189,17 +189,17 @@ impl<M> Flags<M> {
         *lock(&self.notifying) = thread;
     }
 
-    /// Registra un callback que recibe el [`Diff`] de cada reemplazo aplicado. Uno que falla
-    /// no lo dispara; uno sin cambios visibles (un comentario, un `reload` forzado) sí, con las
-    /// listas vacías.
+    /// Registers a callback that receives the [`Diff`] of each applied replacement. One that
+    /// fails does not trigger it; one with no visible changes (a comment, a forced `reload`)
+    /// does, with empty lists.
     ///
-    /// Los avisos llegan uno detrás de otro y en orden de revisión, en el hilo que hizo el
-    /// reemplazo (el del watcher, al recargar el archivo): el callback tiene que volver rápido.
-    /// Desde él se puede consultar y registrar otro callback, pero **no** llamar a
-    /// [`replace`](Self::replace) ni a `Watcher::reload` sobre estos mismos flags: se esperarían
-    /// a sí mismos, así que entran en pánico. Eso solo se detecta en el mismo hilo: si el
-    /// callback se lo encarga a otro hilo y lo espera, los dos se bloquean para siempre. Un
-    /// callback que entra en pánico se registra con `tracing`, y el resto se llaman igual.
+    /// Notices arrive one after another and in revision order, on the thread that made the
+    /// replacement (the watcher's, when reloading the file): the callback has to return quickly.
+    /// From it you can query and register another callback, but **not** call
+    /// [`replace`](Self::replace) or `Watcher::reload` on these same flags: they would wait for
+    /// themselves, so they panic. That is only detected on the same thread: if the callback
+    /// hands it to another thread and waits for it, both block forever. A callback that panics
+    /// is logged with `tracing`, and the rest are still called.
     ///
     /// # Examples
     ///
@@ -214,7 +214,7 @@ impl<M> Flags<M> {
     /// });
     ///
     /// flags.replace(Snapshot::from_toml_str(
-    ///     "[flags]\n\"payments\" = { enabled = false, reason = \"mantenimiento\" }",
+    ///     "[flags]\n\"payments\" = { enabled = false, reason = \"maintenance\" }",
     /// )?);
     /// assert_eq!(rx.try_recv(), Ok(vec!["payments".to_owned()]));
     /// # Ok::<(), breaker_panel::LoadError>(())
@@ -249,16 +249,16 @@ impl Diff {
     }
 }
 
-/// Bloquea un mutex del crate ignorando el poisoning, a propósito.
+/// Locks one of the crate's mutexes ignoring poisoning, on purpose.
 ///
-/// Un `Mutex` de std queda envenenado si un hilo entra en pánico con él tomado, y desde entonces
-/// `lock` devuelve `Err` para avisar de que los datos pueden estar a medias. Aquí no pueden:
-/// cada sección crítica es una asignación o un `push`, o el mutex guarda `()`. Hacer `unwrap`
-/// sería peor que inútil: tras un solo pánico, cada `replace` y cada recarga posteriores
-/// fallarían también, y la recarga en caliente moriría para siempre.
+/// A std `Mutex` is poisoned if a thread panics while holding it, and from then on `lock`
+/// returns `Err` to warn that the data may be half-written. Here it cannot be: each critical
+/// section is an assignment or a `push`, or the mutex holds `()`. An `unwrap` would be worse
+/// than useless: after a single panic, every later `replace` and reload would fail too, and hot
+/// reloading would die for good.
 ///
-/// Cuando se estabilice `std::sync::nonpoison::Mutex` (feature `nonpoison_mutex`), los campos
-/// pasan a ese tipo y este helper sobra.
+/// Once `std::sync::nonpoison::Mutex` (feature `nonpoison_mutex`) is stabilized, the fields
+/// switch to that type and this helper goes away.
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -267,16 +267,16 @@ pub(crate) fn subscribe<T>(listeners: &Listeners<T>, f: impl Fn(&T) + Send + Syn
     lock(listeners).push(Arc::new(f));
 }
 
-/// Llama a los callbacks fuera del lock de la lista, para que uno pueda registrar otro.
+/// Calls the callbacks outside the list's lock, so that one can register another.
 ///
-/// Un pánico en un callback no puede dejar sin aviso a los siguientes ni, al recargar desde el
-/// watcher, matar su hilo: la recarga en caliente se pararía sin que nada lo dijera.
+/// A panic in one callback must not leave the following ones without their notice nor, when
+/// reloading from the watcher, kill its thread: hot reloading would stop with nothing saying so.
 pub(crate) fn call_all<T>(listeners: &Listeners<T>, arg: &T, hook: &str) {
     let listeners = lock(listeners).clone();
     for listener in listeners {
         let called = panic::catch_unwind(AssertUnwindSafe(|| listener(arg)));
         if called.is_err() {
-            tracing::error!(hook, "un callback entró en pánico");
+            tracing::error!(hook, "a callback panicked");
         }
     }
 }

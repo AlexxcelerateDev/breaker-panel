@@ -4,28 +4,28 @@ use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::{FlagError, LoadError, TomlError, key::is_key};
 
-/// El estado de una key con la cascada ya aplicada.
+/// The state of a key with the cascade already applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Resolved<M = ()> {
-    /// Efectivo: `false` si la key o cualquier ancestro declarado está apagado.
+    /// Effective: `false` if the key or any declared ancestor is disabled.
     pub enabled: bool,
-    /// El ancestro apagado más cercano a la raíz, o la propia key. `None` si está encendida.
+    /// The disabled ancestor closest to the root, or the key itself. `None` if enabled.
     pub disabled_by: Option<String>,
-    /// El `reason` de `disabled_by`. `None` si está encendida.
+    /// The `reason` of `disabled_by`. `None` if enabled.
     pub reason: Option<String>,
-    /// Lo que el archivo pone en `meta`; la librería no lo interpreta.
+    /// Whatever the file puts in `meta`; the library does not interpret it.
     pub meta: M,
 }
 
-/// Los flags de una carga: inmutables, validados y con la cascada resuelta.
+/// The flags of one load: immutable, validated and with the cascade resolved.
 ///
-/// Varias consultas sobre el mismo `Snapshot` son consistentes entre sí aunque el archivo se
-/// recargue en medio, también a través de un `.await`.
+/// Several queries on the same `Snapshot` are consistent with each other even if the file is
+/// reloaded in between, also across an `.await`.
 #[derive(Debug)]
 pub struct Snapshot<M = ()> {
-    // `BTreeMap` y no `HashMap`: `children` sale en el mismo orden en cada recarga y en cada
-    // réplica. El lookup sigue siendo uno, sin recorrer el árbol.
+    // `BTreeMap` and not `HashMap`: `children` comes out in the same order on every reload and
+    // on every replica. The lookup is still a single one, without walking the tree.
     pub(crate) flags: BTreeMap<String, Resolved<M>>,
     pub(crate) revision: u64,
     toml: String,
@@ -47,16 +47,16 @@ struct Entry<M> {
 }
 
 impl<M: DeserializeOwned + Default> Snapshot<M> {
-    /// Carga un snapshot desde el texto de un archivo de flags, con revisión 0.
+    /// Loads a snapshot from the text of a flags file, with revision 0.
     ///
-    /// Con `M = ()` una entrada no puede traer `meta`; para leerlo, un `M` propio que implemente
-    /// `Deserialize` y `Default` (el que se usa si una entrada no lo trae).
+    /// With `M = ()` an entry cannot have `meta`; to read it, use your own `M` that implements
+    /// `Deserialize` and `Default` (used when an entry has none).
     ///
     /// # Errors
     ///
-    /// Rechaza el archivo entero ante el primer problema: [`LoadError::Toml`] si no parsea, trae
-    /// un campo desconocido o un `meta` que no encaja en `M`; [`LoadError::InvalidKey`],
-    /// [`LoadError::MissingReason`], y con la feature `registry`, [`LoadError::MissingKey`].
+    /// Rejects the whole file at the first problem: [`LoadError::Toml`] if it does not parse, has
+    /// an unknown field or a `meta` that does not fit `M`; [`LoadError::InvalidKey`],
+    /// [`LoadError::MissingReason`], and with the `registry` feature, [`LoadError::MissingKey`].
     ///
     /// # Examples
     ///
@@ -65,12 +65,12 @@ impl<M: DeserializeOwned + Default> Snapshot<M> {
     ///
     /// let snap: Snapshot = Snapshot::from_toml_str(r#"
     ///     [flags]
-    ///     "payments" = { enabled = false, reason = "mantenimiento" }
+    ///     "payments" = { enabled = false, reason = "maintenance" }
     /// "#)?;
     /// assert!(snap.require("payments").is_err());
     ///
-    /// let sin_reason = "[flags]\n\"payments\" = { enabled = false }";
-    /// assert!(Snapshot::<()>::from_toml_str(sin_reason).is_err());
+    /// let no_reason = "[flags]\n\"payments\" = { enabled = false }";
+    /// assert!(Snapshot::<()>::from_toml_str(no_reason).is_err());
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn from_toml_str(s: &str) -> Result<Self, LoadError> {
@@ -89,12 +89,12 @@ impl<M: DeserializeOwned + Default> Snapshot<M> {
 }
 
 impl<M> Snapshot<M> {
-    /// Deja pasar si la key está encendida, con la cascada aplicada.
+    /// Lets the operation through if the key is enabled, with the cascade applied.
     ///
     /// # Errors
     ///
-    /// [`FlagError::Unknown`] si la key no está declarada, y [`FlagError::Disabled`] si ella o
-    /// un ancestro está apagado.
+    /// [`FlagError::Unknown`] if the key is not declared, and [`FlagError::Disabled`] if it or an
+    /// ancestor is disabled.
     ///
     /// # Examples
     ///
@@ -103,16 +103,16 @@ impl<M> Snapshot<M> {
     ///
     /// let snap: Snapshot = Snapshot::from_toml_str(r#"
     ///     [flags]
-    ///     "payments"                = { enabled = false, reason = "mantenimiento" }
+    ///     "payments"                = { enabled = false, reason = "maintenance" }
     ///     "payments.methods.paypal" = { enabled = true }
     /// "#)?;
     /// let Err(FlagError::Disabled { disabled_by, reason, .. }) = snap.require("payments.methods.paypal")
-    /// else { panic!("el padre está apagado") };
-    /// assert_eq!((disabled_by.as_str(), reason.as_str()), ("payments", "mantenimiento"));
+    /// else { panic!("the parent is disabled") };
+    /// assert_eq!((disabled_by.as_str(), reason.as_str()), ("payments", "maintenance"));
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
-    // El nombre que trae quien viene de Unleash u OpenFeature: con el alias, rustdoc lo
-    // encuentra y rustc sugiere `require` (desde 1.99, por delante de nombres parecidos).
+    // The name people bring from Unleash or OpenFeature: with the alias, rustdoc finds it and
+    // rustc suggests `require` (since 1.99, ahead of similar names).
     #[doc(alias = "is_enabled")]
     pub fn require(&self, key: impl AsRef<str>) -> Result<(), FlagError> {
         let key = key.as_ref();
@@ -120,7 +120,7 @@ impl<M> Snapshot<M> {
         let Some(by) = &resolved.disabled_by else {
             return Ok(());
         };
-        tracing::debug!(key, disabled_by = %by, "require denegado");
+        tracing::debug!(key, disabled_by = %by, "require denied");
         Err(FlagError::Disabled {
             key: key.to_owned(),
             disabled_by: by.clone(),
@@ -128,11 +128,11 @@ impl<M> Snapshot<M> {
         })
     }
 
-    /// El estado resuelto de una key, esté encendida o no.
+    /// The resolved state of a key, whether it is enabled or not.
     ///
     /// # Errors
     ///
-    /// [`FlagError::Unknown`] si la key no está declarada.
+    /// [`FlagError::Unknown`] if the key is not declared.
     ///
     /// # Examples
     ///
@@ -151,8 +151,8 @@ impl<M> Snapshot<M> {
         })
     }
 
-    /// Los hijos directos declarados de `prefix`, en orden alfabético. `prefix` no hace falta
-    /// que esté declarado.
+    /// The declared direct children of `prefix`, in alphabetical order. `prefix` itself does not
+    /// need to be declared.
     ///
     /// # Examples
     ///
@@ -163,7 +163,7 @@ impl<M> Snapshot<M> {
     ///     [flags]
     ///     "payments.methods.paypal"        = { enabled = true }
     ///     "payments.methods.paypal.refund" = { enabled = true }
-    ///     "payments.methods.stripe"        = { enabled = false, reason = "caído" }
+    ///     "payments.methods.stripe"        = { enabled = false, reason = "down" }
     /// "#)?;
     /// let methods: Vec<_> = snap.children("payments.methods").map(|(k, r)| (k, r.enabled)).collect();
     /// assert_eq!(methods, [("payments.methods.paypal", true), ("payments.methods.stripe", false)]);
@@ -176,7 +176,7 @@ impl<M> Snapshot<M> {
         })
     }
 
-    /// La revisión: 0 al cargar, y [`Flags`](crate::Flags) la incrementa en cada reemplazo.
+    /// The revision: 0 on load, and [`Flags`](crate::Flags) increments it on each replacement.
     ///
     /// # Examples
     ///
@@ -191,32 +191,31 @@ impl<M> Snapshot<M> {
         self.revision
     }
 
-    /// El TOML del que se cargó, tal cual.
+    /// The TOML it was loaded from, verbatim.
     ///
-    /// Es lo que permite comprobar que una réplica aplicó lo último, cosa que `revision()` no
-    /// dice (es un contador por proceso):
+    /// It is what lets you check that a replica applied the latest version, which `revision()`
+    /// does not tell you (it is a per-process counter):
     ///
-    /// - **Réplica atrasada**: el archivo en disco distinto de `toml()` es una recarga que no se
-    ///   aplicó. Puede ser un rechazo, o un evento que nunca llegó (un bind mount de Docker
-    ///   Desktop para Windows, un directorio renombrado en Windows, o un symlink reapuntado hasta
-    ///   que cambie el directorio de antes, con `Flags::watch_file`), y eso último no lo ve
-    ///   ningún callback. Tolera la diferencia unos cientos de milisegundos: es lo que tarda en
-    ///   recargar. No cubre un bind mount de un solo archivo en un host Linux: el contenedor sigue
-    ///   leyendo el inodo viejo, que coincide con `toml()` aunque el host ya tenga otro.
-    /// - **Réplicas que coinciden**: un hash de `toml()` en el health check, comparado con el
-    ///   del archivo desplegado, calculado fuera del contenedor; esto detecta también el caso
-    ///   anterior. El algoritmo es de la app: con SHA-256, el mismo valor que
-    ///   `sha256sum flags.toml`.
+    /// - **Stale replica**: a file on disk that differs from `toml()` is a reload that was not
+    ///   applied. It may be a rejection, or an event that never arrived (a Docker Desktop for
+    ///   Windows bind mount, a directory renamed on Windows, or a symlink repointed until the old
+    ///   directory changes, with `Flags::watch_file`), and that last case reaches no callback.
+    ///   Tolerate the difference for a few hundred milliseconds: that is how long reloading
+    ///   takes. It does not cover a single-file bind mount on a Linux host: the container keeps
+    ///   reading the old inode, which matches `toml()` even though the host already has another.
+    /// - **Matching replicas**: a hash of `toml()` in the health check, compared with that of the
+    ///   deployed file, computed outside the container; this also detects the previous case. The
+    ///   algorithm is the app's choice: with SHA-256, the same value as `sha256sum flags.toml`.
     ///
     /// # Examples
     ///
     /// ```
     /// use breaker_panel::Snapshot;
     ///
-    /// let archivo = "[flags]\n\"payments\" = { enabled = true }\n";
-    /// let snap: Snapshot = Snapshot::from_toml_str(archivo)?;
-    /// // En un `/health`: `std::fs::read_to_string(path)? != snap.toml()` es una réplica atrasada.
-    /// assert_eq!(snap.toml(), archivo);
+    /// let file = "[flags]\n\"payments\" = { enabled = true }\n";
+    /// let snap: Snapshot = Snapshot::from_toml_str(file)?;
+    /// // In a `/health`: `std::fs::read_to_string(path)? != snap.toml()` is a stale replica.
+    /// assert_eq!(snap.toml(), file);
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn toml(&self) -> &str {
@@ -229,18 +228,18 @@ fn validate<M>(entries: &BTreeMap<String, Entry<M>>) -> Result<(), LoadError> {
         if !is_key(key) {
             return Err(LoadError::InvalidKey { key: key.clone() });
         }
-        let sin_reason = entry.reason.as_deref().is_none_or(|r| r.trim().is_empty());
-        if !entry.enabled && sin_reason {
+        let no_reason = entry.reason.as_deref().is_none_or(|r| r.trim().is_empty());
+        if !entry.enabled && no_reason {
             return Err(LoadError::MissingReason { key: key.clone() });
         }
     }
     Ok(())
 }
 
-/// Aplana la cascada una vez por carga: en runtime cada consulta es un lookup.
+/// Flattens the cascade once per load: at runtime each query is a lookup.
 fn resolve<M>(entries: BTreeMap<String, Entry<M>>) -> BTreeMap<String, Resolved<M>> {
-    // Las causas se calculan antes de consumir `entries`; en un `BTreeMap`, `keys` e
-    // `into_iter` recorren el mismo orden, así que el `zip` empareja bien.
+    // The causes are computed before consuming `entries`; in a `BTreeMap`, `keys` and
+    // `into_iter` walk the same order, so the `zip` pairs them correctly.
     let causes: Vec<_> = entries.keys().map(|key| cause(key, &entries)).collect();
     let pairs = entries.into_iter().zip(causes);
     pairs
@@ -256,7 +255,7 @@ fn resolve<M>(entries: BTreeMap<String, Entry<M>>) -> BTreeMap<String, Resolved<
         .collect()
 }
 
-/// `(disabled_by, reason)`: el primer declarado apagado de la raíz hacia la key.
+/// `(disabled_by, reason)`: the first declared disabled one from the root down to the key.
 fn cause<M>(key: &str, entries: &BTreeMap<String, Entry<M>>) -> (Option<String>, Option<String>) {
     let by = key
         .match_indices('.')

@@ -2,35 +2,35 @@ use std::collections::BTreeMap;
 
 use crate::{LoadError, Resolved};
 
-/// La usa [`flag_key!`] para comprobar el formato de la key al compilar.
+/// Used by [`flag_key!`] to check the key's format at compile time.
 #[doc(hidden)]
 pub use crate::key::is_key;
 
-/// La usa [`flag_key!`] para que el consumidor no tenga que depender de `linkme`.
+/// Used by [`flag_key!`] so the consumer does not have to depend on `linkme`.
 #[doc(hidden)]
 pub use linkme;
 
-/// Las keys declaradas con [`flag_key!`] en todo el binario. La rellena el linker: no es estado
-/// que se escriba en runtime.
+/// The keys declared with [`flag_key!`] across the whole binary. Filled in by the linker: it is
+/// not state written at runtime.
 #[doc(hidden)]
 #[linkme::distributed_slice]
 pub static KEYS: [&'static str];
 
-/// Declara una key como `static` y la registra: toda carga —la inicial y cada recarga— falla si
-/// el archivo no la tiene.
+/// Declares a key as a `static` and registers it: every load —the initial one and each
+/// reload— fails if the file does not have it.
 ///
-/// El registro es por binario (lo arma el linker): es estado global, aunque de solo lectura.
-/// Por eso el mismo texto puede cargar en un binario y fallar en otro, y cada test del
-/// consumidor que construya un `Snapshot` tiene que incluir todas las keys registradas en su
-/// binario. En los tests de este crate, cada fichero de `tests/` solo ve las que declara él.
+/// The registry is per binary (the linker builds it): it is global state, albeit read-only.
+/// That is why the same text can load in one binary and fail in another, and every consumer test
+/// that builds a `Snapshot` has to include all the keys registered in its binary. In this
+/// crate's tests, each file in `tests/` only sees the ones it declares.
 ///
-/// Las keys armadas con `format!` no se registran; si faltan, dan
-/// [`FlagError::Unknown`](crate::FlagError::Unknown) en runtime.
+/// Keys built with `format!` are not registered; if they are missing, they give
+/// [`FlagError::Unknown`](crate::FlagError::Unknown) at runtime.
 ///
 /// # Examples
 ///
-/// Un doctest que la use va con `standalone_crate`: en edición 2024 los doctests se fusionan en
-/// un solo binario, y la key registrada se exigiría en todos.
+/// A doctest that uses it needs `standalone_crate`: in edition 2024 doctests are merged into a
+/// single binary, and the registered key would be required in all of them.
 ///
 /// ```rust,standalone_crate
 /// use std::assert_matches;
@@ -45,18 +45,18 @@ pub static KEYS: [&'static str];
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
-/// Una key que no cumple `^[a-z0-9_]+(\.[a-z0-9_]+)*$` no compila (E0080: la evaluación de
-/// una constante falla):
+/// A key that does not match `^[a-z0-9_]+(\.[a-z0-9_]+)*$` does not compile (E0080: evaluating
+/// a constant fails):
 ///
 /// ```compile_fail,E0080
-/// breaker_panel::flag_key!(MAL = "payments.Methods.paypal");
+/// breaker_panel::flag_key!(BAD = "payments.Methods.paypal");
 /// ```
 #[macro_export]
 macro_rules! flag_key {
     ($(#[$attr:meta])* $vis:vis $name:ident = $key:literal) => {
         const _: () = ::core::assert!(
             $crate::is_key($key),
-            ::core::concat!("flag_key!: ", $key, " no es una key válida (a-z, 0-9, _, y . entre segmentos)"),
+            ::core::concat!("flag_key!: ", $key, " is not a valid key (a-z, 0-9, _, and . between segments)"),
         );
         $(#[$attr])*
         #[$crate::linkme::distributed_slice($crate::KEYS)]
@@ -66,7 +66,8 @@ macro_rules! flag_key {
 }
 
 pub(crate) fn check<M>(flags: &BTreeMap<String, Resolved<M>>) -> Result<(), LoadError> {
-    // La menor y no la primera: el orden de `KEYS` lo pone el linker y cambia entre builds.
+    // The smallest and not the first: the order of `KEYS` is set by the linker and changes
+    // between builds.
     match KEYS.iter().filter(|key| !flags.contains_key(**key)).min() {
         Some(key) => Err(LoadError::MissingKey {
             key: (*key).to_owned(),

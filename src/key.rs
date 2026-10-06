@@ -1,13 +1,13 @@
 use crate::FlagError;
 
-/// Valida un segmento que llega de fuera antes de armar una key con él.
+/// Validates a segment that comes from outside before building a key with it.
 ///
-/// Rechaza el `.` —en una key separa niveles— y todo lo que no cumpla `^[a-z0-9_]+$`. Sin esto,
-/// un `"method": "paypal.refund"` en el body de una petición consultaría otra key.
+/// Rejects `.` —in a key it separates levels— and anything that does not match `^[a-z0-9_]+$`.
+/// Without this, a `"method": "paypal.refund"` in a request body would query a different key.
 ///
 /// # Errors
 ///
-/// [`FlagError::InvalidSegment`] si `s` está vacío o tiene algo fuera de `[a-z0-9_]`.
+/// [`FlagError::InvalidSegment`] if `s` is empty or contains anything outside `[a-z0-9_]`.
 ///
 /// # Examples
 ///
@@ -28,14 +28,14 @@ pub fn segment(s: &str) -> Result<&str, FlagError> {
     }
 }
 
-/// `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, sin arrastrar una dependencia de regex.
+/// `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, without pulling in a regex dependency.
 ///
-/// `const` para que `flag_key!` rechace una key mal formada al compilar: si
-/// no, fallaría al arrancar diciendo que falta en el archivo, donde nunca podría estar.
+/// `const` so that `flag_key!` rejects a malformed key at compile time: otherwise it would fail
+/// at startup saying it is missing from the file, where it could never be.
 #[doc(hidden)]
 pub const fn is_key(key: &str) -> bool {
     let bytes = key.as_bytes();
-    // `true` al empezar y tras cada `.`: ahí tiene que abrir un segmento.
+    // `true` at the start and after each `.`: a segment has to begin there.
     let mut at_segment_start = true;
     let mut i = 0;
     while i < bytes.len() {
