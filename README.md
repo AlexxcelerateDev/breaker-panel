@@ -68,7 +68,9 @@ curl -X POST localhost:3000/refunds -H 'content-type: application/json' -d '{"me
 ## Semantics
 
 - Each entry has `enabled`; `reason` is required when it is disabled (it is shown to the end
-  user); `meta` is optional and is deserialized by your type `M`. Any other field is an error.
+  user); `meta` is optional and is deserialized by your type `M` (with the default `M = ()`, a
+  `meta` is an error; `serde::de::IgnoredAny` accepts and ignores it). Any other field is an
+  error.
 - **Cascade without override**: a key is enabled only if it and all its declared ancestors are.
   `disabled_by` is the disabled ancestor closest to the root, and the exposed `reason` is its
   own.
@@ -217,7 +219,8 @@ a reload that removes it is rejected. A malformed key (`"payments.Methods"`) doe
 compile. Dynamic keys (`format!`) are not validated at startup: if they do not exist, they give
 `Unknown` at runtime.
 
-The linker builds the registry per binary: it is the crate's only global state, and it is
+The linker builds the registry per binary, from the crates it links: the keys of a dependency
+the code never references are not registered. It is the crate's only global state, and it is
 read-only. Consequence for your tests: every TOML they load has to include the keys registered
 in that binary.
 

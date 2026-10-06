@@ -19,7 +19,8 @@ pub static KEYS: [&'static str];
 /// Declares a key as a `static` and registers it: every load —the initial one and each
 /// reload— fails if the file does not have it.
 ///
-/// The registry is per binary (the linker builds it): it is global state, albeit read-only.
+/// The registry is per binary (the linker builds it, from the crates it links: a dependency the
+/// code never references registers nothing): it is global state, albeit read-only.
 /// That is why the same text can load in one binary and fail in another, and every consumer test
 /// that builds a `Snapshot` has to include all the keys registered in its binary. In this
 /// crate's tests, each file in `tests/` only sees the ones it declares.
