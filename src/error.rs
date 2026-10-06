@@ -145,8 +145,18 @@ impl Error for LoadError {
 ///
 /// Opaque on purpose: exposing the `toml` error would make every `toml` major release a major
 /// release of this crate.
-#[derive(Debug)]
 pub struct TomlError(pub(crate) toml::de::Error);
+
+// By hand: the `toml` error's own `Debug` includes the whole file, and `{:?}` is what a `main`
+// returning the error or a `tracing::error!(?e)` writes.
+impl fmt::Debug for TomlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TomlError")
+            .field("message", &self.0.message())
+            .field("span", &self.0.span())
+            .finish()
+    }
+}
 
 impl fmt::Display for TomlError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -155,3 +165,17 @@ impl fmt::Display for TomlError {
 }
 
 impl Error for TomlError {}
+
+#[cfg(test)]
+mod tests {
+    use crate::Snapshot;
+
+    #[test]
+    fn el_debug_de_un_error_de_toml_no_incluye_el_archivo() {
+        let e = Snapshot::<()>::from_toml_str("[flags]\n\"marca\" = { enabled = true }\n\"z\" = {")
+            .unwrap_err();
+        let debug = format!("{e:?}");
+        assert!(!debug.contains("marca"), "{debug}");
+        assert!(debug.contains("span"), "{debug}");
+    }
+}

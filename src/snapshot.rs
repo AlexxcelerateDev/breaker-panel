@@ -50,7 +50,9 @@ impl<M: DeserializeOwned + Default> Snapshot<M> {
     /// Loads a snapshot from the text of a flags file, with revision 0.
     ///
     /// With `M = ()` an entry cannot have `meta`; to read it, use your own `M` that implements
-    /// `Deserialize` and `Default` (used when an entry has none).
+    /// `Deserialize` and `Default` (used when an entry has none). To load any file and ignore
+    /// `meta`, as a validator that does not know the app's `M` would, use
+    /// `serde::de::IgnoredAny`.
     ///
     /// # Errors
     ///
@@ -71,6 +73,10 @@ impl<M: DeserializeOwned + Default> Snapshot<M> {
     ///
     /// let no_reason = "[flags]\n\"payments\" = { enabled = false }";
     /// assert!(Snapshot::<()>::from_toml_str(no_reason).is_err());
+    ///
+    /// let with_meta = "[flags]\n\"payments\" = { enabled = true, meta = { owner = \"x\" } }";
+    /// assert!(Snapshot::<()>::from_toml_str(with_meta).is_err());
+    /// assert!(Snapshot::<serde::de::IgnoredAny>::from_toml_str(with_meta).is_ok());
     /// # Ok::<(), breaker_panel::LoadError>(())
     /// ```
     pub fn from_toml_str(s: &str) -> Result<Self, LoadError> {
