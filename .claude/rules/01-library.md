@@ -60,9 +60,11 @@ una librería le quita al consumidor la forma de configurarla y a los tests la d
 - La primera línea del `//!` de `lib.rs` dice qué hace el crate: es el resumen en docs.rs.
 - **Idioma**: inglés en todo lo que ve quien usa el crate —`///`, `//!`, README, `examples/`,
   los mensajes (`Display`, `tracing`, pánicos, el error de compilación de `flag_key!`) y los
-  comentarios del código de producción, que docs.rs enseña en la vista de fuente—. En español,
-  los tests, los commits y la documentación del repo (`CLAUDE.md`, `.claude/`, `docs/`). El
-  `Display` de un error es casi contrato: hay quien compara su `to_string()`, como el README.
+  comentarios del código de producción, que docs.rs enseña en la vista de fuente—, y también los
+  commits y los PRs, que GitHub enseña en la portada del repo. En español, los tests y la
+  documentación del repo (`CLAUDE.md`, `.claude/`, `docs/`): la mantiene quien la escribe, y un
+  contribuidor con Claude Code la sigue igual. El `Display` de un error es casi contrato: hay
+  quien compara su `to_string()`, como el README.
 
 ## Reglas de código
 

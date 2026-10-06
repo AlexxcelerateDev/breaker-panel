@@ -20,8 +20,10 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
 - Es la única copia junto a `.github/workflows/ci.yml`: si cambia, cambian las dos en el mismo
   commit. El agente `gate` lo lee de aquí.
 - `cargo fmt --all` corre solo tras cada `Edit`/`Write` (hook en `.claude/settings.json`).
-- Commits: `tipo: resumen` en español (`feat`, `fix`, `docs`, `refactor`, `chore`), cuerpo en
-  viñetas con el porqué. Un cambio de convención actualiza su regla en el mismo commit.
+- Commits y PRs en inglés, porque GitHub los enseña en la portada del repo: `tipo: resumen`
+  (`feat`, `fix`, `docs`, `refactor`, `chore`), cuerpo en viñetas con el porqué. El historial
+  anterior a 2026-10-06 está en español. Un cambio de convención actualiza su regla en el mismo
+  commit.
 
 ## Dónde se aparta del borrador de `docs/REQUIREMENTS.md` §6
 
