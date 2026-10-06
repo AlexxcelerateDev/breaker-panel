@@ -1,8 +1,8 @@
-//! Kill switches jerárquicos embebidos: archivo TOML local, hot-reload y cascada, sin servicio externo.
+//! Embedded hierarchical kill switches: a local TOML file, hot reload and cascading, no external service.
 //!
-//! Las keys son jerárquicas (`payments.methods.paypal`): apagar un nodo apaga todo lo que cuelga
-//! de él, y la consulta dice quién lo apagó y por qué. La cascada se resuelve al cargar; en
-//! runtime cada consulta es un load atómico y un lookup, sin locks.
+//! Keys are hierarchical (`payments.methods.paypal`): disabling a node disables everything
+//! under it, and the query says who disabled it and why. The cascade is resolved at load time;
+//! at runtime each query is an atomic load and a lookup, with no locks.
 //!
 //! ```
 //! use breaker_panel::{FlagError, Flags, segment};
@@ -10,53 +10,54 @@
 //! let flags: Flags = Flags::from_toml_str(r#"
 //!     [flags]
 //!     "payments"                       = { enabled = true }
-//!     "payments.methods.paypal"        = { enabled = false, reason = "PayPal no responde" }
+//!     "payments.methods.paypal"        = { enabled = false, reason = "PayPal is not responding" }
 //!     "payments.methods.paypal.refund" = { enabled = true }
 //!     "payments.ops.refund"            = { enabled = true }
 //! "#)?;
 //!
-//! // POST /refunds: un `require` por dimensión. El segmento llega del usuario: se valida antes.
+//! // POST /refunds: one `require` per dimension. The segment is user input: validate it first.
 //! let m = segment("paypal")?;
 //! let Err(FlagError::Disabled { disabled_by, reason, .. }) =
 //!     flags.require(format!("payments.methods.{m}.refund"))
 //! else {
-//!     panic!("el método está apagado, y con él su refund");
+//!     panic!("the method is disabled, and its refund with it");
 //! };
 //! assert_eq!(disabled_by, "payments.methods.paypal");
-//! assert_eq!(reason, "PayPal no responde");
+//! assert_eq!(reason, "PayPal is not responding");
 //! assert_eq!(flags.require("payments.ops.refund"), Ok(()));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! # Features
 //!
-//! - `watch` (default): [`Flags::watch_file`] y [`Flags::poll_file`], la recarga en caliente.
-//! - `registry` (default): [`flag_key!`], keys declaradas en código y validadas en cada carga.
+//! - `watch` (default): [`Flags::watch_file`] and [`Flags::poll_file`], hot reloading.
+//! - `registry` (default): [`flag_key!`], keys declared in code and validated on every load.
 //!
-//! # Observabilidad
+//! # Observability
 //!
-//! Una recarga rechazada deja vigente el snapshot anterior. Regístrala con
-//! [`Watcher::on_reject`]: si no, solo queda en el log de la librería, que un filtro por crate
-//! descarta. Para registrar un [`LoadError`] completo, `{:#}`. Eventos de `tracing`:
+//! A rejected reload keeps the previous snapshot in effect. Record it with
+//! [`Watcher::on_reject`]: otherwise it only reaches the library's log, which a per-crate filter
+//! drops. To log a full [`LoadError`], use `{:#}`. `tracing` events:
 //!
-//! | Evento | Target | Nivel |
+//! | Event | Target | Level |
 //! |---|---|---|
-//! | Recarga aplicada, con su revisión | `breaker_panel::flags` | `info` |
-//! | Recarga rechazada, con la cadena de causas (línea y columna si el TOML no parsea) | `breaker_panel::watch` | `warn` |
-//! | La vigilancia con eventos se paró: el directorio se borró o se recreó (también llega a `on_reject`) | `breaker_panel::watch` | `warn` |
-//! | `poll_file` con un intervalo de menos de 100 ms, que se sube a 100 | `breaker_panel::watch` | `warn` |
-//! | Un callback de `on_change` u `on_reject` entró en pánico | `breaker_panel::flags` | `error` |
-//! | `require` denegado: **uno por llamada**, así que bajo carga con un switch apagado es una línea por petición | `breaker_panel::snapshot` | `debug` |
+//! | Reload applied, with its revision | `breaker_panel::flags` | `info` |
+//! | Reload rejected, with the chain of causes (line and column if the TOML does not parse) | `breaker_panel::watch` | `warn` |
+//! | Event-based watching stopped: the directory was deleted or recreated (also sent to `on_reject`) | `breaker_panel::watch` | `warn` |
+//! | `poll_file` with an interval under 100 ms, which is raised to 100 | `breaker_panel::watch` | `warn` |
+//! | An `on_change` or `on_reject` callback panicked | `breaker_panel::flags` | `error` |
+//! | `require` denied: **one per call**, so under load with a switch off it is one line per request | `breaker_panel::snapshot` | `debug` |
 //!
-//! # Varias réplicas
+//! # Multiple replicas
 //!
-//! Cada proceso recarga por su cuenta, así que mientras el archivo se propaga dos réplicas
-//! pueden responder distinto. Un listado (`GET`) es informativo; la autoridad es el `require`
-//! de la operación (`POST`). Para comprobar qué aplicó cada una, [`Snapshot::toml`].
+//! Each process reloads on its own, so while the file propagates two replicas may answer
+//! differently. A listing (`GET`) is informational; the authority is the operation's `require`
+//! (`POST`). To check what each one applied, [`Snapshot::toml`].
 //!
-//! La guía de modelado de keys está en el README.
+//! The key modeling guide is in the README.
 
-// Sin la feature, lo que trae no existe y su enlace de arriba estaría roto: apunta a `# Features`.
+// Without the feature, what it brings does not exist and its link above would be broken: point
+// it at `# Features`.
 #![cfg_attr(
     not(feature = "watch"),
     doc = "",
@@ -65,8 +66,8 @@
     doc = "[`Watcher::on_reject`]: #features"
 )]
 #![cfg_attr(not(feature = "registry"), doc = "", doc = "[`flag_key!`]: #features")]
-// Techo de 15 líneas por función (umbral en `clippy.toml`), solo para el código de producción:
-// en un test lo largo son datos, y `[lints]` de `Cargo.toml` no puede distinguir los tests. Ver
+// 15-line ceiling per function (threshold in `clippy.toml`), only for production code: in a test
+// the length is data, and `[lints]` in `Cargo.toml` cannot tell tests apart. See
 // `.claude/rules/01-library.md`.
 #![cfg_attr(not(test), warn(clippy::too_many_lines))]
 
@@ -89,8 +90,8 @@ pub use snapshot::{Resolved, Snapshot};
 #[cfg(feature = "watch")]
 pub use watch::Watcher;
 
-/// Los bloques de código del README corren como doctests: el ejemplo de la portada no se pudre.
-/// Uno usa `flag_key!`, de ahí la feature.
+/// The README's code blocks run as doctests: the front-page example does not rot. One uses
+/// `flag_key!`, hence the feature.
 #[cfg(all(doctest, feature = "registry"))]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;

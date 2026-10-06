@@ -79,5 +79,7 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
   también deja de ver cambios, así que el aviso es cierto. Además entrega eventos de justo antes
   de `watch()`, también el borrado del propio directorio, y borrar el padre no genera ninguno
   hasta que se recrea. Los tests de macOS solo compilan en el job `macos`.
-- `publish = false` hasta la fase 1 del roadmap. Para publicar: quitarlo, añadir `description`,
-  `license` y `repository`, y esa licencia al `allow` de `deny.toml`.
+- **El paquete de crates.io solo lleva lo que lista `include`** (`Cargo.toml`): un archivo nuevo
+  que necesiten los tests o los ejemplos fuera de esas rutas no viaja. `cargo package --list`
+  lo enseña. Una versión publicada no se cambia ni se borra (`yank` solo frena a los nuevos):
+  `cargo publish --dry-run` antes de cada una.

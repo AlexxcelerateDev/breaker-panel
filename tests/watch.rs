@@ -155,7 +155,7 @@ fn borrar_el_archivo_se_rechaza_y_recrearlo_lo_recupera() -> TestResult {
 
     fs::remove_file(&path)?;
     let error = next(&rejected)?;
-    assert!(error.starts_with("no se pudo leer"), "{error}");
+    assert!(error.starts_with("failed to read"), "{error}");
     assert_eq!(flags.require("payments"), Ok(()));
     // Mientras siga sin existir, ni otra recarga (aquí forzada) ni cualquier otro evento del
     // directorio vuelven a avisar: el mismo rechazo se avisa una vez.
@@ -224,7 +224,7 @@ fn reload_invalido_conserva_el_snapshot_y_no_avisa() -> TestResult {
 
     assert_matches!(r, Err(LoadError::MissingReason { .. }));
     // El rechazo es observable sin depender del log de la librería.
-    assert!(next(&rejected)?.contains("sin `reason`"));
+    assert!(next(&rejected)?.contains("without a `reason`"));
     assert_eq!(flags.require("payments"), Ok(()));
     assert_eq!(flags.snapshot().revision(), 0);
     assert!(rx.try_recv().is_err());
@@ -259,7 +259,7 @@ fn recrear_el_directorio_llega_a_on_reject() -> TestResult {
     fs::write(&path, OFF)?;
 
     let mut avisos: Vec<String> = Vec::new();
-    while !avisos.iter().any(|e| e.starts_with("no se pudo vigilar")) {
+    while !avisos.iter().any(|e| e.starts_with("failed to watch")) {
         avisos.push(next(&rejected)?);
     }
     Ok(())
@@ -286,7 +286,7 @@ fn en_macos_recrear_el_directorio_no_corta_la_recarga() -> TestResult {
     assert!(
         rejected
             .try_iter()
-            .all(|e| !e.starts_with("no se pudo vigilar"))
+            .all(|e| !e.starts_with("failed to watch"))
     );
     Ok(())
 }
@@ -317,7 +317,7 @@ fn reapuntar_un_symlink_por_encima_llega_a_on_reject() -> TestResult {
     fs::write(root.join("v1/flags.toml"), OFF)?;
 
     let mut avisos: Vec<String> = Vec::new();
-    while !avisos.iter().any(|e| e.starts_with("no se pudo vigilar")) {
+    while !avisos.iter().any(|e| e.starts_with("failed to watch")) {
         avisos.push(next(&rejected)?);
     }
     Ok(())
@@ -339,7 +339,7 @@ fn recrear_el_directorio_con_sondeo_no_avisa_y_se_recupera() -> TestResult {
     assert!(
         rejected
             .try_iter()
-            .all(|e| !e.starts_with("no se pudo vigilar"))
+            .all(|e| !e.starts_with("failed to watch"))
     );
     Ok(())
 }

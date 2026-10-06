@@ -11,9 +11,7 @@ unmaintained = "workspace"
 ignore = []
 
 [licenses]
-# Con `publish = false` el propio crate no lleva `license`. Al publicarlo esta línea deja de
-# aplicar, y la licencia que se le ponga tiene que estar en `allow`.
-private = { ignore = true }
+# El propio crate también pasa por aquí: su `MIT OR Apache-2.0` tiene que estar en `allow`.
 # Permisivas habituales del ecosistema Rust. Una dependencia fuera de la lista rompe el build:
 # es la señal para revisarla antes de que entre, no para ampliar la lista sin mirar.
 allow = [
