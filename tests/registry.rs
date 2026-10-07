@@ -2,8 +2,6 @@
 //! aquí toda carga exige `payments.methods.paypal`, y en el resto de tests nadie la declara.
 #![cfg(feature = "registry")]
 
-use std::assert_matches;
-
 use breaker_panel::{Flags, LoadError, flag_key};
 
 flag_key!(PAYPAL = "payments.methods.paypal");
@@ -14,7 +12,10 @@ const SIN: &str = "[flags]\n\"payments\" = { enabled = true }\n";
 #[test]
 fn key_registrada_ausente_falla_al_arrancar() {
     let r = Flags::<()>::from_toml_str(SIN);
-    assert_matches!(r, Err(LoadError::MissingKey { key }) if key == "payments.methods.paypal");
+    assert!(
+        matches!(&r, Err(LoadError::MissingKey { key }) if key == "payments.methods.paypal"),
+        "{r:?}"
+    );
 }
 
 #[test]
@@ -35,7 +36,7 @@ fn reload_que_quita_una_key_registrada_se_rechaza() {
     std::fs::write(&path, SIN).unwrap();
     let r = watcher.reload();
 
-    assert_matches!(r, Err(LoadError::MissingKey { .. }));
+    assert!(matches!(r, Err(LoadError::MissingKey { .. })), "{r:?}");
     assert_eq!(flags.require(PAYPAL), Ok(()));
     assert_eq!(flags.snapshot().revision(), 0);
 }

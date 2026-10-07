@@ -10,12 +10,12 @@ archivo solo cubre lo que no se deduce leyendo el código.
 ## Gate completo, lo mismo que corre el CI
 
 ```bash
-cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked --no-default-features && cargo test --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked --no-default-features && cargo deny check && cargo +1.98.0 check --all-targets --locked
+cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked --no-default-features && cargo test --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked --no-default-features && cargo deny check && cargo +1.85.0 check --all-targets --locked
 ```
 
 `cargo deny` no viene con rustup: `cargo install cargo-deny --locked` una vez por máquina. El
 último paso es la MSRV (`rust-version`, por debajo del pin):
-`rustup toolchain install 1.98.0 --profile minimal`, también una vez.
+`rustup toolchain install 1.85.0 --profile minimal`, también una vez.
 
 - Es la única copia junto a `.github/workflows/ci.yml`: si cambia, cambian las dos en el mismo
   commit. El agente `gate` lo lee de aquí.
@@ -60,8 +60,6 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
   hash obliga a elegir algoritmo por el consumidor (`DefaultHasher` cambia entre versiones de
   Rust, SHA-256 añade `sha2` a todos). `Snapshot::toml()` expone el texto aplicado y la app lo
   compara o lo hashea.
-- **No bajar la MSRV a 1.97**: exige un job del CI con esa versión (`.claude/rules/00`), y el
-  único consumidor en 1.97 es la copia suelta de relay, sin remoto.
 
 ## Trampas
 

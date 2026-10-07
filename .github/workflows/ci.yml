@@ -100,11 +100,11 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           # Tiene que coincidir con `rust-version` de `Cargo.toml`.
-          toolchain: "1.98.0"
+          toolchain: "1.85.0"
           rustflags: ""
 
       - name: Compilar con la MSRV
-        run: cargo +1.98.0 check --all-targets --locked
+        run: cargo +1.85.0 check --all-targets --locked
 
   # FSEvents vigila por ruta y no por inodo como inotify: recrear el directorio no corta la
   # recarga. Los tests de eso son `cfg(target_os = "macos")` y en Linux ni compilan, así que

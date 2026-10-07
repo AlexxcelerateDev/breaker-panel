@@ -3,7 +3,6 @@
 #![cfg(feature = "watch")]
 
 use std::{
-    assert_matches,
     error::Error,
     fs::{self, File, FileTimes},
     io::{self, Write},
@@ -57,7 +56,7 @@ fn atomic_save(path: &Path, text: &str) -> io::Result<()> {
     let mtime = fs::metadata(path)?.modified()?;
     let tmp = path.with_extension("tmp");
     // `File::set_times` y no `fs::set_times`, que es de 1.99: los tests también compilan en la
-    // MSRV (1.98).
+    // MSRV (1.85).
     let mut file = File::create(&tmp)?;
     file.write_all(text.as_bytes())?;
     file.set_times(FileTimes::new().set_modified(mtime))?;
@@ -222,7 +221,7 @@ fn reload_invalido_conserva_el_snapshot_y_no_avisa() -> TestResult {
     fs::write(&path, SIN_REASON)?;
     let r = watcher.reload();
 
-    assert_matches!(r, Err(LoadError::MissingReason { .. }));
+    assert!(matches!(r, Err(LoadError::MissingReason { .. })), "{r:?}");
     // El rechazo es observable sin depender del log de la librería.
     assert!(next(&rejected)?.contains("without a `reason`"));
     assert_eq!(flags.require("payments"), Ok(()));
@@ -238,7 +237,7 @@ fn reload_invalido_conserva_el_snapshot_y_no_avisa() -> TestResult {
 fn arrancar_sin_archivo_falla() -> TestResult {
     let path = flags_file("sin_archivo")?.with_file_name("no_existe.toml");
     let r = Flags::<()>::watch_file(&path);
-    assert_matches!(r, Err(LoadError::Io { .. }));
+    assert!(matches!(r, Err(LoadError::Io { .. })), "{r:?}");
     Ok(())
 }
 
