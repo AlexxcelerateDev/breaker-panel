@@ -274,8 +274,6 @@ fn cause<M>(key: &str, entries: &BTreeMap<String, Entry<M>>) -> (Option<String>,
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
-
     use super::*;
 
     fn snap(toml: &str) -> Snapshot {
@@ -406,7 +404,7 @@ mod tests {
         ];
         for (caso, toml) in casos {
             let r = Snapshot::<()>::from_toml_str(toml);
-            assert_matches!(r, Err(LoadError::Toml(_)), "{caso}");
+            assert!(matches!(r, Err(LoadError::Toml(_))), "{caso}: {r:?}");
         }
     }
 
@@ -415,7 +413,10 @@ mod tests {
         for key in ["A", "a..b", "a.", "pay-pal", "a b"] {
             let r =
                 Snapshot::<()>::from_toml_str(&format!("[flags]\n{key:?} = {{ enabled = true }}"));
-            assert_matches!(r, Err(LoadError::InvalidKey { .. }), "{key:?}");
+            assert!(
+                matches!(r, Err(LoadError::InvalidKey { .. })),
+                "{key:?}: {r:?}"
+            );
         }
     }
 
@@ -427,7 +428,10 @@ mod tests {
             "enabled = false, reason = \" \"",
         ] {
             let r = Snapshot::<()>::from_toml_str(&format!("[flags]\n\"a\" = {{ {entry} }}"));
-            assert_matches!(r, Err(LoadError::MissingReason { .. }), "{entry}");
+            assert!(
+                matches!(r, Err(LoadError::MissingReason { .. })),
+                "{entry}: {r:?}"
+            );
         }
     }
 

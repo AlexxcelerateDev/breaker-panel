@@ -48,9 +48,10 @@ en `tests/fixtures/`, nunca en un `setup` global.
 
 - Nombre del test = comportamiento (`segment_rechaza_el_punto`), no `test_1`.
 - Un comportamiento por test; arrange/act/assert reconocibles.
-- `assert_eq!` sobre `assert!(a == b)`: muestra el valor al fallar. Por lo mismo,
-  `assert_matches!` (`use std::assert_matches;`, desde 1.96) sobre `assert!(matches!(..))`: enseña
-  el valor y el patrón sin pasarle un `"{x:?}"` a mano.
+- `assert_eq!` sobre `assert!(a == b)`: muestra el valor al fallar. Por lo mismo, un
+  `assert!(matches!(..))` lleva el valor en el mensaje (`"{r:?}"`). `std::assert_matches` lo haría
+  solo, pero es de 1.96 y los tests compilan en la MSRV (1.85). Un doctest se queda sin mensaje: es
+  un ejemplo para el consumidor.
 - Nada de `sleep` ni esperas por reloj: si hace falta, faltaba inyectar el tiempo.
 
 ## Qué NO añadir (y cuándo sí)

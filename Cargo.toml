@@ -4,8 +4,8 @@ version = "0.1.1"
 edition = "2024"
 # En una librería la MSRV es una promesa a quien la consume. Va por debajo del pin de
 # `rust-toolchain.toml` porque nada en el crate exige uno más nuevo, y por eso la verifica el
-# job `msrv` del CI. Ver `.claude/rules/00-rust-toolchain.md`.
-rust-version = "1.98"
+# job `msrv` del CI. 1.85 es el suelo: lo exigen la edición 2024, `toml` y `notify`. Ver `.claude/rules/00-rust-toolchain.md`.
+rust-version = "1.85"
 description = "Embedded hierarchical kill switches: a local TOML file, hot reload and cascading by key prefix, no external service."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/AlexxcelerateDev/breaker-panel"

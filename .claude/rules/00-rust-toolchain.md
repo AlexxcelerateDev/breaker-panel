@@ -5,7 +5,7 @@
 - **Pin**: `rust-toolchain.toml` fija `channel = "1.99.0"` con `rustfmt` y `clippy`. Es el
   toolchain de quien desarrolla el crate; al consumidor no le llega.
 - **MSRV** (`rust-version`): en una librería es una **promesa al consumidor** — cargo se niega a
-  compilarla con un toolchain anterior. Hoy es 1.98, por debajo del pin, y la verifica el job
+  compilarla con un toolchain anterior. Hoy es 1.85, el suelo de la edición 2024 y de `toml` y `notify`, y la verifica el job
   `msrv` del CI: compila lib, tests y ejemplos con esa versión exacta.
   - **Bajarla** para llegar a más consumidores exige mover ese job a la versión nueva. Declarar
     una MSRV que nada compila es escribir una versión que nadie ha probado.

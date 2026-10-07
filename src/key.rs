@@ -12,11 +12,10 @@ use crate::FlagError;
 /// # Examples
 ///
 /// ```
-/// use std::assert_matches;
 /// use breaker_panel::{FlagError, segment};
 ///
 /// assert_eq!(segment("paypal"), Ok("paypal"));
-/// assert_matches!(segment("paypal.refund"), Err(FlagError::InvalidSegment { .. }));
+/// assert!(matches!(segment("paypal.refund"), Err(FlagError::InvalidSegment { .. })));
 /// ```
 pub fn segment(s: &str) -> Result<&str, FlagError> {
     if is_segment(s) {
