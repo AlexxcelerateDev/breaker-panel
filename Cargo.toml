@@ -1,6 +1,6 @@
 [package]
 name = "breaker-panel"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 # En una librería la MSRV es una promesa a quien la consume. Va por debajo del pin de
 # `rust-toolchain.toml` porque nada en el crate exige uno más nuevo, y por eso la verifica el
