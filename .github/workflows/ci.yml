@@ -35,12 +35,12 @@ jobs:
           persist-credentials: false
 
       # Respeta rust-toolchain.toml (pin + rustfmt + clippy) y trae cache integrado.
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
-          # Por defecto exporta `RUSTFLAGS=-D warnings` a todos los steps siguientes. Los
-          # warnings se deniegan con `CARGO_BUILD_WARNINGS` donde toca (ver
-          # `.claude/rules/00-rust-toolchain.md`); vacío = no tocar `RUSTFLAGS`.
-          rustflags: ""
+          # Por defecto exporta `CARGO_BUILD_WARNINGS=deny` a todos los steps, también a
+          # `cargo test` y a la MSRV, donde el gate local no lo lleva. Vacío = no exportarlo:
+          # se deniega step a step, como en el gate de `CLAUDE.md`.
+          build-warnings: ""
 
       - name: Formato
         run: cargo fmt --all --check
@@ -97,11 +97,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           # Tiene que coincidir con `rust-version` de `Cargo.toml`.
           toolchain: "1.85.0"
-          rustflags: ""
+          build-warnings: ""
 
       - name: Compilar con la MSRV
         run: cargo +1.85.0 check --all-targets --locked
@@ -118,9 +118,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
-          rustflags: ""
+          build-warnings: ""
 
       - name: Lint estricto
         run: cargo clippy --all-targets --locked
