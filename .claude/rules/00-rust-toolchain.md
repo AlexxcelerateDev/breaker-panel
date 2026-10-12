@@ -123,5 +123,5 @@ Endurecido, no opcional aunque el repo sea privado:
   cualquier step posterior, incluido el build de una dependencia.
 - **`concurrency`** con `cancel-in-progress` solo en `pull_request`.
 
-Los tags mayores flotantes (`@v1`) se actualizan solos; un salto de major (`checkout@v7` →
+Los tags mayores flotantes (`@v2`) se actualizan solos; un salto de major (`checkout@v7` →
 `@v8`) hay que hacerlo a mano y se queda atrás en silencio.
