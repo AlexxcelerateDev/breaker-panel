@@ -21,16 +21,17 @@ puede romper el formato).
   compilación de todo el grafo de dependencias.
 - **`--locked`**: si falla por el lockfile, el arreglo es actualizarlo a propósito y decirlo, no
   quitar la bandera.
-- **`--no-default-features`**: un fallo solo aquí es un `use` o un `cfg` que no cuadra con
-  `watch` o `registry` apagadas. Se arregla con el `#[cfg(feature = ...)]` que falte, no
-  quitando el paso.
-- **`cargo test` sin `--lib`**: con `--lib` los doctests no corren.
+- **`cargo hack ... --feature-powerset`**: repite el paso con cada combinación de features, y
+  `cargo hack` dice cuál está corriendo. Un fallo solo en algunas es un `use` o un `cfg` que no
+  cuadra con `watch` o `registry` apagadas. Se arregla con el `#[cfg(feature = ...)]` que falte,
+  no quitando combinaciones.
+- **`cargo hack test` sin `--lib`**: con `--lib` los doctests no corren.
 - El último paso compila con la MSRV (`rust-version`), que va por debajo del pin. Si falta el
   toolchain: `rustup toolchain install <versión> --profile minimal`. Si falla por una API de std
   demasiado nueva, el arreglo es la alternativa antigua, no subir la MSRV: eso lo decide el
   usuario.
-- `cargo deny` y `cargo semver-checks` pueden no estar instalados: `cargo install cargo-deny
-  --locked` o `cargo install cargo-semver-checks --locked`; si no puedes, repórtalo como paso no
+- `cargo hack`, `cargo semver-checks` y `cargo deny` pueden no estar instalados: `cargo install
+  cargo-hack cargo-semver-checks cargo-deny --locked`; si no puedes, repórtalo como paso no
   ejecutado.
 - `cargo semver-checks` compara con la última versión de crates.io. Un fallo suyo es un cambio
   incompatible en la API pública: nunca es mecánico. Repórtalo con el lint que salta y el item.

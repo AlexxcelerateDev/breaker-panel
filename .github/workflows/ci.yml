@@ -42,46 +42,38 @@ jobs:
           # se deniega step a step, como en el gate de `CLAUDE.md`.
           build-warnings: ""
 
+      # Binarios precompilados: instalarlos desde fuente costaría más que todo el resto del job.
+      - name: Instalar cargo-hack, cargo-semver-checks y cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack,cargo-semver-checks,cargo-deny
+
       - name: Formato
         run: cargo fmt --all --check
 
-      - name: Lint estricto
-        run: cargo clippy --all-targets --locked
-        env:
-          CARGO_BUILD_WARNINGS: deny
-
-      # `watch` y `registry` son opcionales: un `use` o un `cfg` que solo cuadra con ellas
-      # encendidas rompe al consumidor que las apaga, y el paso anterior no lo vería.
-      - name: Lint sin features por defecto
-        run: cargo clippy --all-targets --locked --no-default-features
+      # `watch` y `registry` son opcionales: un `use` o un `cfg` que solo cuadra con alguna
+      # encendida rompe al consumidor que la apaga. `--feature-powerset` pasa por cada
+      # combinación: ninguna, cada una sola y todas. Sin `default`, que son las dos y repetiría
+      # una.
+      - name: Lint estricto, por combinación de features
+        run: cargo hack clippy --feature-powerset --exclude-features default --all-targets --locked
         env:
           CARGO_BUILD_WARNINGS: deny
 
       # Sin `--lib` a propósito: en una librería los doctests son los ejemplos de la API, y
-      # `cargo test` a secas corre unitarios, `tests/` y doctests en un solo paso.
-      - name: Tests
-        run: cargo test --locked
+      # `cargo test` a secas corre unitarios, `tests/` y doctests en un solo paso. Por
+      # combinación porque los doctests solo se compilan aquí: clippy no los ve.
+      - name: Tests, por combinación de features
+        run: cargo hack test --feature-powerset --exclude-features default --locked
 
       # La documentación es parte de la API: un enlace [`X`] roto o un `pub` sin documentar
       # rompe aquí. `build.warnings` también cubre a rustdoc (verificado), así que no hace
-      # falta `RUSTDOCFLAGS`.
-      - name: Documentación
-        run: cargo doc --no-deps --locked
+      # falta `RUSTDOCFLAGS`. Por combinación, como el lint: un enlace a algo que traen `watch`
+      # o `registry` se rompe con ellas apagadas.
+      - name: Documentación, por combinación de features
+        run: cargo hack doc --feature-powerset --exclude-features default --no-deps --locked
         env:
           CARGO_BUILD_WARNINGS: deny
-
-      # Como el lint sin features: un enlace a algo que traen `watch` o `registry` se rompe con
-      # ellas apagadas, y el paso anterior no lo vería.
-      - name: Documentación sin features por defecto
-        run: cargo doc --no-deps --locked --no-default-features
-        env:
-          CARGO_BUILD_WARNINGS: deny
-
-      # Binarios precompilados: instalarlos desde fuente costaría más que todo el resto del job.
-      - name: Instalar cargo-semver-checks y cargo-deny
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-semver-checks,cargo-deny
 
       # La API pública es el contrato (`.claude/rules/01-library.md`): compara con la última
       # versión de crates.io, y un cambio incompatible falla hasta que el PR sube la versión.
