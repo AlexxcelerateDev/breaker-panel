@@ -130,6 +130,17 @@ Endurecido, no opcional aunque el repo sea privado:
 - **`persist-credentials: false`**: si no, el token queda en `.git/config` al alcance de
   cualquier step posterior, incluido el build de una dependencia.
 - **`concurrency`** con `cancel-in-progress` solo en `pull_request`.
+- **Acciones fijadas por SHA**, con la versión en un comentario (`@<sha> # v7.0.1`): un tag como
+  `@v2` lo puede mover su dueño a otro código, y el `@v1` de `crates-io-auth-action` ni siquiera
+  es un tag, sino una rama. Las sube Dependabot (`.github/dependabot.yml`), en un PR semanal
+  agrupado y con una semana de espera para cada versión nueva, incluidos los saltos de major,
+  que con tags flotantes se quedaban atrás en silencio. La doc de GitHub no dice si actualiza
+  también el comentario: comprobarlo en su primer PR.
+- **Fijar `taiki-e/install-action` fija también** las versiones de `cargo-hack`,
+  `cargo-semver-checks` y `cargo-deny`. `cargo-semver-checks` lee el JSON de rustdoc: si una
+  subida del pin le pide una versión más nueva, se sube esa acción.
+- **Sin caché en `release.yml`**: la escriben también los runs de los PRs, y lo que restaurase
+  correría en el job que puede pedir un token de publicación.
 
-Los tags mayores flotantes (`@v2`) se actualizan solos; un salto de major (`checkout@v7` →
-`@v8`) hay que hacerlo a mano y se queda atrás en silencio.
+`zizmor --offline .github/` audita los workflows (fuera del gate): pasa sin avisos, y un cambio en
+ellos debería seguir así.

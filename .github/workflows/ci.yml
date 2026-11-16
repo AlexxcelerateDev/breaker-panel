@@ -28,14 +28,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # El token quedaría en .git/config al alcance de cualquier step posterior, incluido el
           # build de una dependencia. Este workflow no hace push.
           persist-credentials: false
 
       # Respeta rust-toolchain.toml (pin + rustfmt + clippy) y trae cache integrado.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Por defecto exporta `CARGO_BUILD_WARNINGS=deny` a todos los steps, también a
           # `cargo test` y a la MSRV, donde el gate local no lo lleva. Vacío = no exportarlo:
@@ -44,7 +44,7 @@ jobs:
 
       # Binarios precompilados: instalarlos desde fuente costaría más que todo el resto del job.
       - name: Instalar cargo-hack, cargo-semver-checks y cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: cargo-hack,cargo-semver-checks,cargo-deny
 
@@ -95,11 +95,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Tiene que coincidir con `rust-version` de `Cargo.toml`.
           toolchain: "1.85.0"
@@ -116,11 +116,11 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           build-warnings: ""
 

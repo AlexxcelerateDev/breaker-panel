@@ -1,0 +1,23 @@
+# Las acciones van fijadas por SHA (ver `.claude/rules/00-rust-toolchain.md`): un tag como `@v2`
+# lo puede mover su dueño a otro código, y un SHA no. Dependabot es quien los sube, también los
+# saltos de major, que con tags flotantes se quedaban atrás en silencio.
+#
+# Las dependencias de Rust no van aquí a propósito: cada subida lleva un análisis (qué arregla,
+# si toca la API, si sube el mínimo de `Cargo.toml`) que un bot no hace.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Una versión recién publicada espera una semana: una release comprometida suele
+    # descubrirse en días. No afecta a las actualizaciones de seguridad.
+    cooldown:
+      default-days: 7
+    # Un PR por semana con todas, no uno por acción.
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore

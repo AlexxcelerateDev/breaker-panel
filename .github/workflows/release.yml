@@ -7,8 +7,15 @@ on:
   push:
     tags: ["v*"]
 
+# Mínimo privilegio para todo el workflow; el job pide aparte lo único que añade.
 permissions:
   contents: read
+
+# Dos tags empujados a la vez publican uno detrás de otro: ni en paralelo ni cancelando uno a
+# medias, que dejaría una versión publicada sin el resto del job.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -18,19 +25,21 @@ jobs:
     environment: release
     permissions:
       contents: read
-      # El intercambio OIDC con crates.io, y solo en este job.
-      id-token: write
+      id-token: write # el intercambio OIDC con crates.io, y solo en este job
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # Toda la historia: el paso siguiente comprueba que el tag está en `main`.
           fetch-depth: 0
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           build-warnings: ""
+          # Sin caché: la escriben también los runs de los PRs, y lo que restaurase correría aquí,
+          # en el job que puede pedir un token de publicación (cache poisoning, según zizmor).
+          cache: false
 
       # Una versión publicada no se cambia ni se borra: solo sale lo que ya está en `main` (y pasó
       # su CI), con la versión que dice el tag.
@@ -57,7 +66,7 @@ jobs:
         env:
           RUSTDOCFLAGS: --cfg docsrs
 
-      - uses: rust-lang/crates-io-auth-action@v1
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
 
       - name: Publicar
