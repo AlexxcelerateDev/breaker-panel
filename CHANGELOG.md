@@ -6,6 +6,8 @@ All notable changes to this crate are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-16
+
 ### Fixed
 
 - The minimum `arc-swap` is now 1.9.5. Up to 1.9.4, `load` could return a value stored into a
@@ -63,7 +65,8 @@ All notable changes to this crate are documented here. The format follows
 First release: hierarchical kill switches from a local TOML file, with the cascade resolved at
 load time, hot reloading (`watch` feature) and keys declared in code (`registry` feature).
 
-[Unreleased]: https://github.com/AlexxcelerateDev/breaker-panel/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/AlexxcelerateDev/breaker-panel/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/AlexxcelerateDev/breaker-panel/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/AlexxcelerateDev/breaker-panel/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/AlexxcelerateDev/breaker-panel/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/AlexxcelerateDev/breaker-panel/compare/v0.1.1...v0.1.2
