@@ -10,12 +10,14 @@ archivo solo cubre lo que no se deduce leyendo el código.
 ## Gate completo, lo mismo que corre el CI
 
 ```bash
-cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked --no-default-features && cargo test --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked --no-default-features && cargo deny check && cargo +1.85.0 check --all-targets --locked
+cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked --no-default-features && cargo test --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked --no-default-features && cargo semver-checks && cargo semver-checks --only-explicit-features && cargo deny check && cargo +1.85.0 check --all-targets --locked
 ```
 
-`cargo deny` no viene con rustup: `cargo install cargo-deny --locked` una vez por máquina. El
-último paso es la MSRV (`rust-version`, por debajo del pin):
-`rustup toolchain install 1.85.0 --profile minimal`, también una vez.
+`cargo semver-checks` y `cargo deny` no vienen con rustup: `cargo install cargo-semver-checks
+--locked` y `cargo install cargo-deny --locked`, una vez por máquina. Los dos usan la red
+(la última versión publicada y la base de advisories). El último paso es la MSRV
+(`rust-version`, por debajo del pin): `rustup toolchain install 1.85.0 --profile minimal`,
+también una vez.
 
 - Es la única copia junto a `.github/workflows/ci.yml`: si cambia, cambian las dos en el mismo
   commit. El agente `gate` lo lee de aquí.

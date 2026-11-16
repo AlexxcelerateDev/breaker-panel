@@ -21,8 +21,10 @@
 
 | Lint | Nivel | Por qué |
 |---|---|---|
-| `unsafe_code` | `deny` | El crate no usa `unsafe`; blindarlo. |
+| `unsafe_code` | `deny` | El crate no usa `unsafe`; blindarlo. Única excepción, con `#[expect]`: el allocator contador de `tests/alloc.rs`, que el consumidor nunca compila. |
 | `missing_docs` | `warn` (→ error en el gate) | En una librería la doc es parte de la API. |
+| `unreachable_pub` | `warn` | El «privado por defecto» de 01: lo que no sale por `lib.rs` va `pub(crate)`, y `pub` solo marca contrato. |
+| `missing_debug_implementations` | `warn` | Sin `Debug`, el consumidor no puede derivarlo en el struct donde guarda el tipo (el estado de axum). |
 | `clippy::unwrap_used` / `expect_used` | `deny` | Un panic aquí lo paga el binario de otro. |
 | `clippy::missing_errors_doc` | `warn` | Todo `pub fn` con `Result` dice en `# Errors` cuándo falla. |
 | `clippy::dbg_macro` / `todo` | `warn` | Restos que no deben llegar a `main`. |

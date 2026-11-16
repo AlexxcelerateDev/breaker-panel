@@ -77,11 +77,21 @@ jobs:
         env:
           CARGO_BUILD_WARNINGS: deny
 
-      # Binario precompilado: instalarlo desde fuente costaría más que todo el resto del job.
-      - name: Instalar cargo-deny
+      # Binarios precompilados: instalarlos desde fuente costaría más que todo el resto del job.
+      - name: Instalar cargo-semver-checks y cargo-deny
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny
+          tool: cargo-semver-checks,cargo-deny
+
+      # La API pública es el contrato (`.claude/rules/01-library.md`): compara con la última
+      # versión de crates.io, y un cambio incompatible falla hasta que el PR sube la versión.
+      - name: Compatibilidad semver
+        run: cargo semver-checks
+
+      # Como el lint sin features: llevar un item a detrás de `watch` o `registry` rompe al
+      # consumidor que las apaga, y el paso anterior, con todas encendidas, no lo ve (probado).
+      - name: Compatibilidad semver sin features por defecto
+        run: cargo semver-checks --only-explicit-features
 
       - name: Auditoría de dependencias
         run: cargo deny check

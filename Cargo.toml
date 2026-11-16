@@ -41,6 +41,12 @@ unsafe_code = "deny"
 # En una librería la documentación es parte de la API: con el gate a `deny`, un `pub` sin `///`
 # rompe el CI.
 missing_docs = "warn"
+# «Privado por defecto» de `.claude/rules/01-library.md`: un `pub` que no sale por `lib.rs` es
+# `pub(crate)`, y así `pub` solo aparece en lo que es contrato.
+unreachable_pub = "warn"
+# Un tipo público sin `Debug` le impide al consumidor el `#[derive(Debug)]` del struct donde lo
+# guarde (el estado de axum, con `Flags` y `Watcher`).
+missing_debug_implementations = "warn"
 
 [lints.clippy]
 unwrap_used = "deny"

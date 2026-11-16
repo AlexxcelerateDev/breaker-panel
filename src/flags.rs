@@ -17,8 +17,10 @@ pub(crate) type Listeners<T> = Mutex<Vec<Arc<dyn Fn(&T) + Send + Sync>>>;
 /// The live flags: the current snapshot, replaceable on the fly, and who listens for changes.
 ///
 /// A query that lets the operation through takes no locks and allocates nothing: one atomic load
-/// of the snapshot and one lookup. A denied one does allocate, to build the [`FlagError`]. Each
-/// instance is independent, so each test creates its own.
+/// of the snapshot and one lookup. The only exception is a thread's first query, where `arc-swap`
+/// may allocate its per-thread state once (and reuse it after the thread exits). A denied query
+/// does allocate, to build the [`FlagError`]. Each instance is independent, so each test creates
+/// its own.
 pub struct Flags<M = ()> {
     current: ArcSwap<Snapshot<M>>,
     listeners: Listeners<Diff>,

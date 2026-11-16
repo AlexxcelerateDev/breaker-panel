@@ -29,8 +29,11 @@ puede romper el formato).
   toolchain: `rustup toolchain install <versión> --profile minimal`. Si falla por una API de std
   demasiado nueva, el arreglo es la alternativa antigua, no subir la MSRV: eso lo decide el
   usuario.
-- `cargo deny` puede no estar instalado: `cargo install cargo-deny --locked`; si no puedes,
-  repórtalo como paso no ejecutado.
+- `cargo deny` y `cargo semver-checks` pueden no estar instalados: `cargo install cargo-deny
+  --locked` o `cargo install cargo-semver-checks --locked`; si no puedes, repórtalo como paso no
+  ejecutado.
+- `cargo semver-checks` compara con la última versión de crates.io. Un fallo suyo es un cambio
+  incompatible en la API pública: nunca es mecánico. Repórtalo con el lint que salta y el item.
 
 ## Qué puedes arreglar tú
 
@@ -47,6 +50,8 @@ puede romper el formato).
 - Cambiar un test o un doctest para que pase. Un test rojo se reporta con su salida.
 - Ignorar un advisory de `cargo deny`. Un `ignore` lleva motivo y fecha, y lo decide el usuario.
 - Tocar la API pública para que compile. Si el arreglo no es mecánico, para y repórtalo.
+- Subir la versión de `Cargo.toml` para que pase `cargo semver-checks`: si se rompe la API o se
+  revierte el cambio, lo decide el usuario.
 
 ## Salida
 

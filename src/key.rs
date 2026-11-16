@@ -31,8 +31,7 @@ pub fn segment(s: &str) -> Result<&str, FlagError> {
 ///
 /// `const` so that `flag_key!` rejects a malformed key at compile time: otherwise it would fail
 /// at startup saying it is missing from the file, where it could never be.
-#[doc(hidden)]
-pub const fn is_key(key: &str) -> bool {
+pub(crate) const fn is_key(key: &str) -> bool {
     let bytes = key.as_bytes();
     // `true` at the start and after each `.`: a segment has to begin there.
     let mut at_segment_start = true;
