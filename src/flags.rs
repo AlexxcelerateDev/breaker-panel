@@ -319,6 +319,8 @@ fn only_in<M>(a: &Snapshot<M>, b: &Snapshot<M>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     fn snap(toml: &str) -> Snapshot {
@@ -411,11 +413,27 @@ mod tests {
             tx.send(r.is_err()).unwrap();
         });
 
-        flags.replace(snap("[flags]"));
+        // En otro hilo y con plazo, generoso y no una espera: si el `replace` de dentro se
+        // esperase a sí mismo, el test fallaría en vez de colgar la suite (y el CI, horas).
+        let fuera = Arc::clone(&flags);
+        let hilo = std::thread::spawn(move || fuera.replace(snap("[flags]")));
 
         // El `replace` de dentro entró en pánico en vez de esperarse a sí mismo.
-        assert_eq!(rx.try_recv(), Ok(true));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(true));
+        hilo.join().unwrap();
         assert_eq!(flags.snapshot().revision(), 1);
+    }
+
+    #[test]
+    fn el_debug_de_flags_muestra_el_snapshot_vigente() {
+        let flags = Flags::new(snap("[flags]\n\"a\" = { enabled = true }"));
+        flags.replace(snap("[flags]\n\"b\" = { enabled = true }"));
+
+        let debug = format!("{flags:?}");
+
+        assert!(debug.starts_with("Flags {"), "{debug}");
+        assert!(debug.contains("revision: 1"), "{debug}");
+        assert!(debug.contains("\"b\""), "{debug}");
     }
 
     /// Entra en pánico con cada evento `error`, como el de `call_all` cuando un callback entra en

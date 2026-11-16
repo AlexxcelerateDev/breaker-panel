@@ -64,6 +64,7 @@ en `tests/fixtures/`, nunca en un `setup` global.
 | `insta` | Salidas grandes y estables. Para un `assert_eq!` de tres campos es peor. |
 | `cargo-nextest` | Cuando la suite crezca o un test necesite aislamiento por proceso. |
 | `cargo-llvm-cov` | Diagnóstico puntual. **Nunca como gate con umbral**: genera tests que no prueban nada. |
+| `cargo-mutants` | Diagnóstico puntual, nunca gate. Cambia el código (un `<` por `<=`, un cuerpo por `Ok(())`) y dice qué cambios no rompe ningún test: mide lo que la cobertura no. `cargo mutants -j 4 -e src/watch.rs`, sin `watch.rs` porque sus tests esperan hasta 10 s y cada mutante que los rompa cuesta eso. Un superviviente se cierra con un test o se descarta por equivalente, no se calla. |
 
 ## Qué testear al añadir código
 

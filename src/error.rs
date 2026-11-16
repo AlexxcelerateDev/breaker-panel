@@ -168,7 +168,38 @@ impl Error for TomlError {}
 
 #[cfg(test)]
 mod tests {
+    use super::FlagError;
     use crate::Snapshot;
+
+    #[test]
+    fn el_display_de_flag_error_nombra_al_ancestro_y_escapa_lo_de_fuera() {
+        let apagada = |key: &str, by: &str| FlagError::Disabled {
+            key: key.into(),
+            disabled_by: by.into(),
+            reason: "mantenimiento".into(),
+        };
+        let casos = [
+            (apagada("a.b", "a.b"), r#""a.b" is disabled: mantenimiento"#),
+            (
+                apagada("a.b", "a"),
+                r#""a.b" is disabled by "a": mantenimiento"#,
+            ),
+            (
+                FlagError::Unknown { key: "x".into() },
+                r#"key "x" is not declared"#,
+            ),
+            // Entre comillas y con el salto de línea escapado: puede venir de una petición.
+            (
+                FlagError::InvalidSegment {
+                    segment: "pay\npal".into(),
+                },
+                r#"invalid segment: "pay\npal""#,
+            ),
+        ];
+        for (error, esperado) in casos {
+            assert_eq!(error.to_string(), esperado, "{error:?}");
+        }
+    }
 
     #[test]
     fn el_debug_de_un_error_de_toml_no_incluye_el_archivo() {
