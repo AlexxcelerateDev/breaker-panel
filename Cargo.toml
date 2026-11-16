@@ -13,7 +13,15 @@ keywords = ["kill-switch", "feature-flags", "toggles", "hot-reload", "toml"]
 categories = ["config"]
 # Solo lo que necesita quien lo consume (o lo prueba): las notas internas (`CLAUDE.md`,
 # `.claude/`, `docs/`) y la config del repo no viajan en el paquete.
-include = ["src/", "examples/", "tests/", "README.md", "LICENSE-*"]
+include = ["src/", "examples/", "tests/", "README.md", "CHANGELOG.md", "LICENSE-*"]
+
+# docs.rs documenta con nightly: con `docsrs`, `src/lib.rs` activa `doc_cfg` y cada item que
+# exige una feature lo dice en su página. Todas las features, también las que no sean por
+# defecto el día que las haya. El gate no pasa por aquí (es stable): lo comprueba
+# `.github/workflows/release.yml` antes de publicar.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["watch", "registry"]
@@ -41,6 +49,12 @@ unsafe_code = "deny"
 # En una librería la documentación es parte de la API: con el gate a `deny`, un `pub` sin `///`
 # rompe el CI.
 missing_docs = "warn"
+# «Privado por defecto» de `.claude/rules/01-library.md`: un `pub` que no sale por `lib.rs` es
+# `pub(crate)`, y así `pub` solo aparece en lo que es contrato.
+unreachable_pub = "warn"
+# Un tipo público sin `Debug` le impide al consumidor el `#[derive(Debug)]` del struct donde lo
+# guarde (el estado de axum, con `Flags` y `Watcher`).
+missing_debug_implementations = "warn"
 
 [lints.clippy]
 unwrap_used = "deny"

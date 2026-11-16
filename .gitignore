@@ -1,4 +1,6 @@
 /target
+# Informes de `cargo mutants` (ver `.claude/rules/02-testing.md`).
+/mutants.out*/
 
 # Personales, nunca compartidos: permisos de Claude por máquina e instrucciones locales.
 .claude/settings.local.json

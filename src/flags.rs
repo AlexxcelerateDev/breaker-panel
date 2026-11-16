@@ -17,8 +17,10 @@ pub(crate) type Listeners<T> = Mutex<Vec<Arc<dyn Fn(&T) + Send + Sync>>>;
 /// The live flags: the current snapshot, replaceable on the fly, and who listens for changes.
 ///
 /// A query that lets the operation through takes no locks and allocates nothing: one atomic load
-/// of the snapshot and one lookup. A denied one does allocate, to build the [`FlagError`]. Each
-/// instance is independent, so each test creates its own.
+/// of the snapshot and one lookup. The only exception is a thread's first query, where `arc-swap`
+/// may allocate its per-thread state once (and reuse it after the thread exits). A denied query
+/// does allocate, to build the [`FlagError`]. Each instance is independent, so each test creates
+/// its own.
 pub struct Flags<M = ()> {
     current: ArcSwap<Snapshot<M>>,
     listeners: Listeners<Diff>,
@@ -168,9 +170,9 @@ impl<M> Flags<M> {
         let diff = Diff::new(&prev, &next);
         self.current.store(Arc::new(next));
         tracing::info!(revision = diff.revision, "flags reloaded");
-        self.set_notifying(Some(thread::current().id()));
+        // Declared after `_writer`, so it is dropped first: the mark goes before the lock.
+        let _notifying = Notifying::start(&self.notifying);
         call_all(&self.listeners, &diff, "on_change");
-        self.set_notifying(None);
     }
 
     /// A `replace` or a `Watcher::reload` from an `on_change` callback of these flags would wait
@@ -183,10 +185,6 @@ impl<M> Flags<M> {
             Some(thread::current().id()),
             "replace or Watcher::reload called from an on_change callback of the same flags",
         );
-    }
-
-    fn set_notifying(&self, thread: Option<ThreadId>) {
-        *lock(&self.notifying) = thread;
     }
 
     /// Registers a callback that receives the [`Diff`] of each applied replacement. One that
@@ -249,6 +247,27 @@ impl Diff {
     }
 }
 
+/// Marks the current thread as the one notifying `on_change`, until dropped.
+///
+/// A guard and not a pair of assignments: `call_all` catches the callbacks' panics, but not one
+/// from the `tracing` subscriber that logs them, which is the app's code. If that panic left the
+/// mark set, every later `replace` from this thread would panic in `forbid_reentry`, blaming a
+/// callback that does not exist.
+struct Notifying<'a>(&'a Mutex<Option<ThreadId>>);
+
+impl<'a> Notifying<'a> {
+    fn start(mark: &'a Mutex<Option<ThreadId>>) -> Self {
+        *lock(mark) = Some(thread::current().id());
+        Self(mark)
+    }
+}
+
+impl Drop for Notifying<'_> {
+    fn drop(&mut self) {
+        *lock(self.0) = None;
+    }
+}
+
 /// Locks one of the crate's mutexes ignoring poisoning, on purpose.
 ///
 /// A std `Mutex` is poisoned if a thread panics while holding it, and from then on `lock`
@@ -300,6 +319,8 @@ fn only_in<M>(a: &Snapshot<M>, b: &Snapshot<M>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     fn snap(toml: &str) -> Snapshot {
@@ -392,11 +413,69 @@ mod tests {
             tx.send(r.is_err()).unwrap();
         });
 
-        flags.replace(snap("[flags]"));
+        // En otro hilo y con plazo, generoso y no una espera: si el `replace` de dentro se
+        // esperase a sí mismo, el test fallaría en vez de colgar la suite (y el CI, horas).
+        let fuera = Arc::clone(&flags);
+        let hilo = std::thread::spawn(move || fuera.replace(snap("[flags]")));
 
         // El `replace` de dentro entró en pánico en vez de esperarse a sí mismo.
-        assert_eq!(rx.try_recv(), Ok(true));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(true));
+        hilo.join().unwrap();
         assert_eq!(flags.snapshot().revision(), 1);
+    }
+
+    #[test]
+    fn el_debug_de_flags_muestra_el_snapshot_vigente() {
+        let flags = Flags::new(snap("[flags]\n\"a\" = { enabled = true }"));
+        flags.replace(snap("[flags]\n\"b\" = { enabled = true }"));
+
+        let debug = format!("{flags:?}");
+
+        assert!(debug.starts_with("Flags {"), "{debug}");
+        assert!(debug.contains("revision: 1"), "{debug}");
+        assert!(debug.contains("\"b\""), "{debug}");
+    }
+
+    /// Entra en pánico con cada evento `error`, como el de `call_all` cuando un callback entra en
+    /// pánico: es código del consumidor, y su pánico sí sale de `replace`.
+    struct SubscriberRoto;
+
+    impl tracing::Subscriber for SubscriberRoto {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            assert_ne!(
+                *event.metadata().level(),
+                tracing::Level::ERROR,
+                "subscriber roto"
+            );
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[test]
+    fn un_aviso_que_sale_en_panico_no_bloquea_el_siguiente_replace() {
+        let flags = Flags::new(snap("[flags]"));
+        flags.on_change(|_| panic!("callback roto"));
+        let escapa = tracing::subscriber::with_default(SubscriberRoto, || {
+            panic::catch_unwind(AssertUnwindSafe(|| flags.replace(snap("[flags]"))))
+        });
+        assert!(
+            escapa.is_err(),
+            "el pánico del subscriber tenía que salir de replace"
+        );
+
+        // Si el hilo se quedase marcado como el que avisa, `forbid_reentry` saltaría aquí.
+        let r = panic::catch_unwind(AssertUnwindSafe(|| flags.replace(snap("[flags]"))));
+        assert!(r.is_ok(), "replace tras un aviso que salió en pánico");
+        assert_eq!(flags.snapshot().revision(), 2);
     }
 
     #[test]

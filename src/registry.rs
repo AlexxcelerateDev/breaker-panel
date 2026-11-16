@@ -3,8 +3,13 @@ use std::collections::BTreeMap;
 use crate::{LoadError, Resolved};
 
 /// Used by [`flag_key!`] to check the key's format at compile time.
+///
+/// A wrapper and not a `pub use` of `key::is_key`: without this feature nothing outside the
+/// crate needs it, and there it stays `pub(crate)`.
 #[doc(hidden)]
-pub use crate::key::is_key;
+pub const fn is_key(key: &str) -> bool {
+    crate::key::is_key(key)
+}
 
 /// Used by [`flag_key!`] so the consumer does not have to depend on `linkme`.
 #[doc(hidden)]

@@ -4,6 +4,11 @@
 
 - Todo lo `pub` alcanzable desde fuera es semver: quitarlo, cambiar su firma o endurecer lo que
   exige es un **major** (en `0.x`, el minor hace de major).
+  - Lo comprueba `cargo semver-checks` en el gate, contra la última versión de crates.io: un
+    cambio incompatible deja el CI en rojo hasta que el mismo PR sube la versión de `Cargo.toml`.
+    Así la rotura es una decisión explícita y no se descubre al publicar, cuando ya no se puede
+    deshacer. Solo ve firmas y tipos: un cambio de comportamiento sigue dependiendo de quien
+    revisa.
 - **Privado por defecto**; `pub(crate)` para compartir entre módulos. Los módulos van privados y
   `lib.rs` hace `pub use` de lo que se expone: la ruta pública no cambia al reorganizar ficheros.
 - **`#[non_exhaustive]`** en los enums de error y en los structs públicos que puedan ganar campos

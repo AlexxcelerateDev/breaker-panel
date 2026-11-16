@@ -66,6 +66,10 @@
     doc = "[`Watcher::on_reject`]: #features"
 )]
 #![cfg_attr(not(feature = "registry"), doc = "", doc = "[`flag_key!`]: #features")]
+// On docs.rs (nightly), each item that needs a feature says so on its own page: `doc_cfg` turns on
+// `doc(auto_cfg)`, which reads it from the `#[cfg]`. Someone landing on `Flags::watch_file` from
+// a search does not see the `# Features` section above.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 // 15-line ceiling per function (threshold in `clippy.toml`), only for production code: in a test
 // the length is data, and `[lints]` in `Cargo.toml` cannot tell tests apart. See
 // `.claude/rules/01-library.md`.

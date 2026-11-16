@@ -21,8 +21,10 @@
 
 | Lint | Nivel | Por qué |
 |---|---|---|
-| `unsafe_code` | `deny` | El crate no usa `unsafe`; blindarlo. |
+| `unsafe_code` | `deny` | El crate no usa `unsafe`; blindarlo. Única excepción, con `#[expect]`: el allocator contador de `tests/alloc.rs`, que el consumidor nunca compila. |
 | `missing_docs` | `warn` (→ error en el gate) | En una librería la doc es parte de la API. |
+| `unreachable_pub` | `warn` | El «privado por defecto» de 01: lo que no sale por `lib.rs` va `pub(crate)`, y `pub` solo marca contrato. |
+| `missing_debug_implementations` | `warn` | Sin `Debug`, el consumidor no puede derivarlo en el struct donde guarda el tipo (el estado de axum). |
 | `clippy::unwrap_used` / `expect_used` | `deny` | Un panic aquí lo paga el binario de otro. |
 | `clippy::missing_errors_doc` | `warn` | Todo `pub fn` con `Result` dice en `# Errors` cuándo falla. |
 | `clippy::dbg_macro` / `todo` | `warn` | Restos que no deben llegar a `main`. |
@@ -113,6 +115,12 @@ versiones sí difieren: un test de #6 pasaba en macOS 27 y fallaba en el runner 
 Saltarlo con `if: github.event_name != 'schedule'` se probó y se revirtió (`aa8802a`): ahorraba
 unos 43 minutos al mes.
 
+Aparte, `release.yml` publica en crates.io cuando se empuja un tag `vX.Y.Z` (el flujo de una
+release está en `CLAUDE.md`). Usa Trusted Publishing: crates.io le da a ese job un token de un
+solo uso por OIDC, así que no hay un token de larga vida en ninguna máquina ni en los secretos
+del repo. Es el único workflow con un permiso de más (`id-token: write`, solo en su job), y corre
+en el environment `release`, donde se le pueden poner revisores obligatorios.
+
 No hay `rustfmt.toml`: defaults de `style_edition 2024`. No crear uno para legalizar desviaciones.
 
 Endurecido, no opcional aunque el repo sea privado:
@@ -122,6 +130,17 @@ Endurecido, no opcional aunque el repo sea privado:
 - **`persist-credentials: false`**: si no, el token queda en `.git/config` al alcance de
   cualquier step posterior, incluido el build de una dependencia.
 - **`concurrency`** con `cancel-in-progress` solo en `pull_request`.
+- **Acciones fijadas por SHA**, con la versión en un comentario (`@<sha> # v7.0.1`): un tag como
+  `@v2` lo puede mover su dueño a otro código, y el `@v1` de `crates-io-auth-action` ni siquiera
+  es un tag, sino una rama. Las sube Dependabot (`.github/dependabot.yml`), en un PR semanal
+  agrupado y con una semana de espera para cada versión nueva, incluidos los saltos de major,
+  que con tags flotantes se quedaban atrás en silencio. La doc de GitHub no dice si actualiza
+  también el comentario: comprobarlo en su primer PR.
+- **Fijar `taiki-e/install-action` fija también** las versiones de `cargo-hack`,
+  `cargo-semver-checks` y `cargo-deny`. `cargo-semver-checks` lee el JSON de rustdoc: si una
+  subida del pin le pide una versión más nueva, se sube esa acción.
+- **Sin caché en `release.yml`**: la escriben también los runs de los PRs, y lo que restaurase
+  correría en el job que puede pedir un token de publicación.
 
-Los tags mayores flotantes (`@v2`) se actualizan solos; un salto de major (`checkout@v7` →
-`@v8`) hay que hacerlo a mano y se queda atrás en silencio.
+`zizmor --offline .github/` audita los workflows (fuera del gate): pasa sin avisos, y un cambio en
+ellos debería seguir así.

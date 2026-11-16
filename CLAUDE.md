@@ -10,11 +10,15 @@ archivo solo cubre lo que no se deduce leyendo el código.
 ## Gate completo, lo mismo que corre el CI
 
 ```bash
-cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --locked --no-default-features && cargo test --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked && CARGO_BUILD_WARNINGS=deny cargo doc --no-deps --locked --no-default-features && cargo deny check && cargo +1.85.0 check --all-targets --locked
+cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo hack clippy --feature-powerset --exclude-features default --all-targets --locked && cargo hack test --feature-powerset --exclude-features default --locked && CARGO_BUILD_WARNINGS=deny cargo hack doc --feature-powerset --exclude-features default --no-deps --locked && cargo semver-checks && cargo semver-checks --only-explicit-features && cargo deny check && cargo +1.85.0 check --all-targets --locked
 ```
 
-`cargo deny` no viene con rustup: `cargo install cargo-deny --locked` una vez por máquina. El
-último paso es la MSRV (`rust-version`, por debajo del pin):
+`cargo hack`, `cargo semver-checks` y `cargo deny` no vienen con rustup: `cargo install
+cargo-hack cargo-semver-checks cargo-deny --locked`, una vez por máquina. Los dos últimos usan
+la red (la última versión publicada y la base de advisories). `--feature-powerset` repite
+clippy, los tests y la doc por cada combinación de features (ninguna, cada una sola y todas);
+`--exclude-features default` quita la que se repetiría, porque `default` son las dos.
+El último paso es la MSRV (`rust-version`, por debajo del pin):
 `rustup toolchain install 1.85.0 --profile minimal`, también una vez.
 
 - Es la única copia junto a `.github/workflows/ci.yml`: si cambia, cambian las dos en el mismo
@@ -83,3 +87,9 @@ cargo fmt --all --check && CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets 
   que necesiten los tests o los ejemplos fuera de esas rutas no viaja. `cargo package --list`
   lo enseña. Una versión publicada no se cambia ni se borra (`yank` solo frena a los nuevos):
   `cargo publish --dry-run` antes de cada una.
+- **Se publica desde el CI, no desde una máquina** (`.github/workflows/release.yml`, Trusted
+  Publishing): un PR `chore: release X.Y.Z` sube la versión y pasa `[Unreleased]` de
+  `CHANGELOG.md` a la versión nueva, con su fecha; tras el merge y con el CI de `main` en verde,
+  `git tag vX.Y.Z` sobre `main` y `git push origin vX.Y.Z`. El workflow rechaza un tag que no
+  coincida con `Cargo.toml` o que no esté en `main`, y documenta con nightly como docs.rs antes
+  de publicar: el gate es stable y no pasa por `docsrs`.

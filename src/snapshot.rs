@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, de::DeserializeOwned};
 
@@ -22,7 +22,6 @@ pub struct Resolved<M = ()> {
 ///
 /// Several queries on the same `Snapshot` are consistent with each other even if the file is
 /// reloaded in between, also across an `.await`.
-#[derive(Debug)]
 pub struct Snapshot<M = ()> {
     // `BTreeMap` and not `HashMap`: `children` comes out in the same order on every reload and
     // on every replica. The lookup is still a single one, without walking the tree.
@@ -226,6 +225,18 @@ impl<M> Snapshot<M> {
     /// ```
     pub fn toml(&self) -> &str {
         &self.toml
+    }
+}
+
+// By hand: the derived one also wrote `toml`, the whole file again next to the flags it already
+// shows. `Flags`' `Debug` includes it, and `Flags` lives in the app state, where a
+// `tracing::debug!(?state)` or an `#[instrument]` that does not skip it logs it on every request.
+impl<M: fmt::Debug> fmt::Debug for Snapshot<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("revision", &self.revision)
+            .field("flags", &self.flags)
+            .finish_non_exhaustive()
     }
 }
 
@@ -449,5 +460,15 @@ mod tests {
         .unwrap();
         assert_eq!(s.get("paypal").unwrap().meta.display_name, "PayPal");
         assert_eq!(s.get("stripe").unwrap().meta, Meta::default());
+    }
+
+    #[test]
+    fn el_debug_muestra_los_flags_pero_no_el_texto_del_archivo() {
+        // Un comentario solo existe en el texto: si sale, se está imprimiendo `toml`.
+        let s = snap("# marca\n[flags]\n\"payments\" = { enabled = true }");
+        let debug = format!("{s:?}");
+        assert!(!debug.contains("marca"), "{debug}");
+        assert!(debug.contains("\"payments\""), "{debug}");
+        assert!(debug.contains("revision: 0"), "{debug}");
     }
 }
