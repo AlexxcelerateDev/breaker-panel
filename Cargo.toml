@@ -15,6 +15,14 @@ categories = ["config"]
 # `.claude/`, `docs/`) y la config del repo no viajan en el paquete.
 include = ["src/", "examples/", "tests/", "README.md", "LICENSE-*"]
 
+# docs.rs documenta con nightly: con `docsrs`, `src/lib.rs` activa `doc_cfg` y cada item que
+# exige una feature lo dice en su página. Todas las features, también las que no sean por
+# defecto el día que las haya. El gate no pasa por aquí (es stable): lo comprueba
+# `.github/workflows/release.yml` antes de publicar.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["watch", "registry"]
 # Recarga en caliente. `notify` llega reexportado por el debouncer: una dependencia menos que
