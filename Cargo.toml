@@ -24,12 +24,15 @@ watch = ["dep:notify-debouncer-full"]
 registry = ["dep:linkme"]
 
 [dependencies]
-arc-swap = "1.9.3"
-linkme = { version = "0.3.37", optional = true }
+# 1.9.5 como mínimo, no solo por seguir al lock: hasta 1.9.4, `load` podía devolver el valor de
+# otra instancia si el allocator reutilizaba la dirección de uno ya liberado (vorner/arc-swap#210),
+# justo el patrón de `Flags::require` (un escritor que guarda `Arc` nuevos, lectores con `load`).
+arc-swap = "1.9.5"
+linkme = { version = "0.3.38", optional = true }
 notify-debouncer-full = { version = "0.7.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 # Solo leer: sin `display` (serializar) ni el resto de defaults.
-toml = { version = "1.1.8", default-features = false, features = ["std", "serde", "parse"] }
+toml = { version = "1.2.1", default-features = false, features = ["std", "serde", "parse"] }
 # Sin `attributes`: no se usa `#[instrument]` y ahorra un proc-macro al consumidor.
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
@@ -55,7 +58,7 @@ allow_attributes_without_reason = "warn"
 [dev-dependencies]
 # Solo para `examples/axum.rs`: no llegan al consumidor.
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
-tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 
 # Usa `watch_file` y `flag_key!`: con `--no-default-features` no compilaría, así que cargo lo
