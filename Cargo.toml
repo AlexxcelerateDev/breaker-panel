@@ -13,7 +13,7 @@ keywords = ["kill-switch", "feature-flags", "toggles", "hot-reload", "toml"]
 categories = ["config"]
 # Solo lo que necesita quien lo consume (o lo prueba): las notas internas (`CLAUDE.md`,
 # `.claude/`, `docs/`) y la config del repo no viajan en el paquete.
-include = ["src/", "examples/", "tests/", "README.md", "LICENSE-*"]
+include = ["src/", "examples/", "tests/", "README.md", "CHANGELOG.md", "LICENSE-*"]
 
 # docs.rs documenta con nightly: con `docsrs`, `src/lib.rs` activa `doc_cfg` y cada item que
 # exige una feature lo dice en su página. Todas las features, también las que no sean por

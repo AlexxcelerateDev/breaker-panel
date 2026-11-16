@@ -115,6 +115,12 @@ versiones sí difieren: un test de #6 pasaba en macOS 27 y fallaba en el runner 
 Saltarlo con `if: github.event_name != 'schedule'` se probó y se revirtió (`aa8802a`): ahorraba
 unos 43 minutos al mes.
 
+Aparte, `release.yml` publica en crates.io cuando se empuja un tag `vX.Y.Z` (el flujo de una
+release está en `CLAUDE.md`). Usa Trusted Publishing: crates.io le da a ese job un token de un
+solo uso por OIDC, así que no hay un token de larga vida en ninguna máquina ni en los secretos
+del repo. Es el único workflow con un permiso de más (`id-token: write`, solo en su job), y corre
+en el environment `release`, donde se le pueden poner revisores obligatorios.
+
 No hay `rustfmt.toml`: defaults de `style_edition 2024`. No crear uno para legalizar desviaciones.
 
 Endurecido, no opcional aunque el repo sea privado:

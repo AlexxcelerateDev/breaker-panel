@@ -87,3 +87,9 @@ El último paso es la MSRV (`rust-version`, por debajo del pin):
   que necesiten los tests o los ejemplos fuera de esas rutas no viaja. `cargo package --list`
   lo enseña. Una versión publicada no se cambia ni se borra (`yank` solo frena a los nuevos):
   `cargo publish --dry-run` antes de cada una.
+- **Se publica desde el CI, no desde una máquina** (`.github/workflows/release.yml`, Trusted
+  Publishing): un PR `chore: release X.Y.Z` sube la versión y pasa `[Unreleased]` de
+  `CHANGELOG.md` a la versión nueva, con su fecha; tras el merge y con el CI de `main` en verde,
+  `git tag vX.Y.Z` sobre `main` y `git push origin vX.Y.Z`. El workflow rechaza un tag que no
+  coincida con `Cargo.toml` o que no esté en `main`, y documenta con nightly como docs.rs antes
+  de publicar: el gate es stable y no pasa por `docsrs`.

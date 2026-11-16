@@ -1,0 +1,66 @@
+name: Release
+
+# Publica en crates.io al empujar un tag `vX.Y.Z`, con Trusted Publishing: crates.io da un token
+# de un solo uso a este job por OIDC, y no hay un token de larga vida en ninguna máquina ni en los
+# secretos del repo. El flujo de una release está en `CLAUDE.md`.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Con revisores obligatorios en este environment (Settings → Environments), publicar espera a
+    # que alguien lo apruebe.
+    environment: release
+    permissions:
+      contents: read
+      # El intercambio OIDC con crates.io, y solo en este job.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Toda la historia: el paso siguiente comprueba que el tag está en `main`.
+          fetch-depth: 0
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          build-warnings: ""
+
+      # Una versión publicada no se cambia ni se borra: solo sale lo que ya está en `main` (y pasó
+      # su CI), con la versión que dice el tag.
+      - name: Comprobar el tag
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 --locked | jq -r '.packages[0].version')
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::el tag $GITHUB_REF_NAME no coincide con la versión de Cargo.toml (v$version)"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_SHA no está en main"
+            exit 1
+          fi
+
+      # docs.rs documenta una sola vez, con nightly y `--cfg docsrs`, al publicar: si eso falla, la
+      # versión se queda sin documentación para siempre. Mejor que falle aquí, antes de publicar.
+      # Sin denegar warnings: docs.rs no lo hace, y un lint nuevo de nightly no debe frenar una
+      # release (los warnings ya los deniega el CI en stable).
+      - name: Documentación como en docs.rs
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo +nightly doc --no-deps --all-features --locked
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publicar
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
